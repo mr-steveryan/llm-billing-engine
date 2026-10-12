@@ -54,11 +54,14 @@ Tokens are simulated by the caller. No model is called. Invalid shape (negative,
 
 ## Idempotency strategy (one transaction)
 
-1. Look up `(tenant_id, idempotency_key)`. If it exists, return that event (replay, no quota charge).
-2. `SELECT … FROM tenants WHERE id = $1 FOR UPDATE`: row lock, so concurrent requests for one tenant run one at a time
-   and can't both pass the quota check with the last unit of quota.
+1. `SELECT … FROM tenants WHERE id = $1 FOR UPDATE`: row lock **first**, so every request for one tenant,
+   replays included, runs one at a time. Both the duplicate lookup and the quota check are then race-free.
+2. Look up `(tenant_id, idempotency_key)`. If it exists, return that event (replay: no quota charge, no 402).
 3. Check status (402), then `used + this_request > limit` (429). A request that **would** cross the limit is rejected whole.
-4. `INSERT … ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`. The unique constraint is the final guarantee, even if app code is wrong.
+4. Plain `INSERT`. Under the lock a duplicate can't happen; if a bug ever caused one, `UNIQUE (tenant_id, idempotency_key)`
+   fails loudly (500) instead of being silently ignored the way `ON CONFLICT DO NOTHING` would.
+
+Proven by tests: removing the `FOR UPDATE` makes both concurrency tests fail (10 parallel requests overshoot the quota / double-insert).
 
 Rejected requests store nothing. We check the quota *before* inserting, unlike the brief's diagram, so a rejected call is never billed.
 Known limit: a replay with the same key but a different body returns the original result without comparing bodies.

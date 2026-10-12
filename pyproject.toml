@@ -7,3 +7,9 @@ dependencies = [
     "psycopg[binary]>=3.3.6",
     "uvicorn[standard]>=0.54.0",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "pytest>=9.1.1",
+]
