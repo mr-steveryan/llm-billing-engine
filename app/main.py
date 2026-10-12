@@ -53,6 +53,34 @@ def generate(
     return {"event_id": event["id"], "cost_usd": str(event["cost_usd"]), "replayed": replayed}
 
 
+@app.get("/usage")
+def get_usage(x_api_key: Annotated[str | None, Header()] = None):
+    with connect() as conn:
+        tenant_id = tenant_id_for(conn, x_api_key)  # key -> tenant: you can only ever read your own usage
+        tenant = conn.execute(
+            """SELECT t.plan_id, t.status, p.monthly_calls, p.monthly_tokens
+               FROM tenants t JOIN plans p ON p.id = t.plan_id WHERE t.id = %s""",
+            (tenant_id,),
+        ).fetchone()
+        used = meter.monthly_usage(conn, tenant_id)
+    return {
+        "plan": tenant["plan_id"],
+        "status": tenant["status"],
+        "period": {"start": used["period_start"], "resets_on": used["resets_on"]},
+        "calls": {"used": used["calls"], "limit": tenant["monthly_calls"]},
+        "tokens": {
+            "used": used["tokens"],
+            "limit": tenant["monthly_tokens"],
+            # Per-category totals, so anyone can recompute cost_usd from the pinned rates in app/pricing.py.
+            "input": used["input_tokens"],
+            "cached_input": used["cached_input_tokens"],
+            "output": used["output_tokens"],
+            "reasoning": used["reasoning_tokens"],
+        },
+        "cost_usd": str(used["cost_usd"]),
+    }
+
+
 @app.get("/checkout")
 def checkout_page():
     return FileResponse(Path(__file__).parent / "checkout.html")

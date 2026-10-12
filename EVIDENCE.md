@@ -8,20 +8,20 @@ stack (`docker compose up`), using the seeded demo tenants:
 | Tenant A | `00000000-0000-7000-8000-00000000000a` | `demo-key-tenant-a` |
 | Tenant B | `00000000-0000-7000-8000-00000000000b` | `demo-key-tenant-b` |
 
-Status: ✅ proven · ⏳ pending (Stage 4).
+Status: ✅ proven.
 
 | # | Requirement | Status |
 |---|-------------|--------|
 | 1 | Metering: one event per billable action, even under retries | ✅ |
 | 2 | Quotas: checked against plan, over-limit rejected | ✅ |
 | 3 | Quotas: correct 429 / 402 with a message explaining why | ✅ |
-| 4 | Cost: monthly usage rolls up into a cost figure per tenant (`GET /usage`) | ⏳ Stage 4 |
+| 4 | Cost: monthly usage rolls up into a cost figure per tenant (`GET /usage`) | ✅ |
 | 5 | Cost: cached input, reasoning and output priced correctly | ✅ |
-| 6 | Cost: pricing constants pinned in config, totals proven | ✅ (per event; `/usage` total ⏳) |
+| 6 | Cost: pricing constants pinned in config, totals proven | ✅ |
 | 7 | Payments: subscription checkout works end-to-end in test mode | ✅ |
 | 8 | Payments: webhooks verify signatures, ignore duplicates, update plan/status | ✅ |
 | 9 | Data model: tenants, plans, subscriptions, usage events; tenant isolation | ✅ |
-| 10 | README + architecture diagram + setup instructions | ⏳ Stage 4 |
+| 10 | README + architecture diagram + setup instructions | ✅ |
 
 > Payments use **Razorpay** (test mode) instead of Stripe. Event mapping is in [DESIGN.md](DESIGN.md#payment-sync-razorpay-test-mode).
 
@@ -55,7 +55,12 @@ tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED
 tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED
 tests/test_webhooks.py::test_checkout_refuses_tenant_already_on_pro PASSED
 tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED
-============================== 24 passed in 0.78s ==============================
+tests/test_usage.py::test_empty_month_shows_zero_usage_and_plan_limits PASSED
+tests/test_usage.py::test_rollup_cost_matches_pinned_pricing_constants PASSED
+tests/test_usage.py::test_last_months_usage_is_not_counted PASSED
+tests/test_usage.py::test_tenant_sees_only_its_own_usage PASSED
+tests/test_usage.py::test_usage_requires_api_key PASSED
+============================== 29 passed in 0.81s ==============================
 ```
 Tests run against a separate `billing_test` database, rebuilt from `schema.sql` on every run.
 
@@ -68,6 +73,7 @@ Tests run against a separate `billing_test` database, rebuilt from `schema.sql` 
 | Out-of-order guard | `test_out_of_order_older_event_does_not_win` |
 | Signature check | `test_forged_signature_*`, `test_missing_signature_is_rejected` |
 | Empty-notes guard | `test_subscription_not_created_by_checkout_*` (same `TypeError` as production) |
+| Month filter in `monthly_usage` | `test_last_months_usage_is_not_counted` |
 
 ---
 
@@ -146,9 +152,55 @@ The full path from a webhook to a 402 is covered by `test_halted_subscription_bl
 {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, cached_input_tokens cannot exceed input_tokens (cached is part of input)", ...
 ```
 
-## 4. Cost: monthly rollup per tenant ⏳
+## 4. Cost: monthly rollup per tenant ✅
 
-`GET /usage` is built in Stage 4. Each event's cost is already stored (`usage_events.cost_usd`), so the rollup is a `SUM`.
+**Stage 4 gate: `/usage` numbers match the pinned pricing constants.** Tenant B (Free) sends two calls and one replay.
+The expected total was worked out by hand *before* reading `/usage` (rates per 1M tokens):
+
+| Event | input | cached | output (reasoning) | Cost from the pinned rates |
+|-------|------:|-------:|-------------------:|---------------------------:|
+| e1 | 10,000 | 4,000 | 5,000 (2,000) | (6,000×2.00 + 4,000×0.10 + 5,000×10.00) / 1M = **$0.0624** |
+| e2 | 20,000 | 15,000 | 3,000 (1,000) | (5,000×2.00 + 15,000×0.10 + 3,000×10.00) / 1M = **$0.0415** |
+| e1 again | replay, must not count | | | – |
+| **Expected** | **30,000** | **19,000** | **8,000 (3,000)** | **$0.1039**, 2 calls |
+
+```
+$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-b'        # before: empty month
+{"plan": "free", "status": "active", "period": {"start": "2026-10-01", "resets_on": "2026-11-01"},
+ "calls": {"used": 0, "limit": 1000},
+ "tokens": {"used": 0, "limit": 100000, "input": 0, "cached_input": 0, "output": 0, "reasoning": 0},
+ "cost_usd": "0"}
+
+$ curl -s -X POST localhost:8000/generate -H 'X-API-Key: demo-key-tenant-b' -H 'Idempotency-Key: usage-e1' \
+    -H 'Content-Type: application/json' -d '{"input_tokens":10000,"cached_input_tokens":4000,"output_tokens":5000,"reasoning_tokens":2000}'
+{"event_id":16069,"cost_usd":"0.0624000000","replayed":false}
+$ curl ... -H 'Idempotency-Key: usage-e2' -d '{"input_tokens":20000,"cached_input_tokens":15000,"output_tokens":3000,"reasoning_tokens":1000}'
+{"event_id":16070,"cost_usd":"0.0415000000","replayed":false}
+$ curl ... -H 'Idempotency-Key: usage-e1' (same body as e1)
+{"event_id":16069,"cost_usd":"0.0624000000","replayed":true}
+
+$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-b'        # after
+{"plan": "free", "status": "active", "period": {"start": "2026-10-01", "resets_on": "2026-11-01"},
+ "calls": {"used": 2, "limit": 1000},
+ "tokens": {"used": 38000, "limit": 100000, "input": 30000, "cached_input": 19000, "output": 8000, "reasoning": 3000},
+ "cost_usd": "0.1039000000"}
+
+$ uv run python -c 'from app.pricing import cost_usd; print(cost_usd(30_000, 19_000, 8_000))'
+0.1039
+```
+`/usage` matches the hand calculation and the pinned constants exactly. The replay was not counted, and
+`tokens.used` = input + output = 38,000.
+
+Tenant A (on Pro through its real Razorpay subscription) shows the Pro limits, and B's usage doesn't leak into A's:
+```
+$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-a'
+{"plan": "pro", "status": "active", ..., "calls": {"used": 0, "limit": 50000},
+ "tokens": {"used": 0, "limit": 10000000, ...}, "cost_usd": "0"}
+```
+
+Automated: `test_rollup_cost_matches_pinned_pricing_constants` (the gate, $0.0834 case),
+`test_last_months_usage_is_not_counted` (an event 1 second before the UTC month is excluded; fails if the month
+filter is removed), `test_tenant_sees_only_its_own_usage`, `test_empty_month_shows_zero_usage_and_plan_limits`.
 
 ## 5 & 6. Cost: token pricing rules, pinned constants, proven totals ✅
 
@@ -273,6 +325,9 @@ Isolation: the tenant comes only from the API key (stored as a SHA-256 hash), ne
 
 Schema decisions and data-type reasons: [DESIGN.md](DESIGN.md), [schema.sql](schema.sql).
 
-## 10. README, architecture diagram, setup ⏳
+## 10. README, architecture diagram, setup ✅
 
-Stage 4.
+[README.md](README.md): what the engine does, a mermaid architecture diagram (meter / read / payment-sync paths),
+plans with the Pro numbers, pinned pricing, setup from a clean clone (`.env` keys, Razorpay plan and webhook, ngrok),
+curl examples, endpoints and status codes, project layout, known limits.
+The diagram was checked with mermaid's own parser (`flowchart-v2`, parses cleanly).

@@ -28,6 +28,27 @@ class BillingError(Exception):
         self.message = message
 
 
+def monthly_usage(conn: psycopg.Connection[DictRow], tenant_id) -> DictRow:
+    """This calendar month's (UTC) usage for one tenant. The single definition used by both the quota check
+    and GET /usage, so what a tenant is shown and what is enforced can never disagree."""
+    row = conn.execute(
+        """SELECT count(*) AS calls,
+                  coalesce(sum(input_tokens + output_tokens), 0) AS tokens,  -- cached/reasoning are inside these
+                  coalesce(sum(input_tokens), 0) AS input_tokens,
+                  coalesce(sum(cached_input_tokens), 0) AS cached_input_tokens,
+                  coalesce(sum(output_tokens), 0) AS output_tokens,
+                  coalesce(sum(reasoning_tokens), 0) AS reasoning_tokens,
+                  coalesce(sum(cost_usd), 0) AS cost_usd,  -- each event was priced when recorded
+                  (date_trunc('month', now(), 'UTC') AT TIME ZONE 'UTC')::date AS period_start,
+                  (date_trunc('month', now(), 'UTC') AT TIME ZONE 'UTC' + interval '1 month')::date AS resets_on
+           FROM usage_events
+           WHERE tenant_id = %s AND created_at >= date_trunc('month', now(), 'UTC')""",
+        (tenant_id,),
+    ).fetchone()
+    assert row is not None  # an aggregate without GROUP BY always returns exactly one row
+    return row
+
+
 def record(conn: psycopg.Connection[DictRow], tenant_id, idempotency_key: str, usage: Usage) -> tuple[DictRow, bool]:
     """Record one billable call. Returns (event, replayed). Raises BillingError for 402/429.
 
@@ -52,14 +73,7 @@ def record(conn: psycopg.Connection[DictRow], tenant_id, idempotency_key: str, u
     if tenant["status"] == "past_due":
         raise BillingError(402, "Payment failed for your subscription; update your payment method to continue.")
 
-    used = conn.execute(
-        """SELECT count(*) AS calls,
-                  coalesce(sum(input_tokens + output_tokens), 0) AS tokens,
-                  (date_trunc('month', now(), 'UTC') + interval '1 month')::date AS resets_on
-           FROM usage_events
-           WHERE tenant_id = %s AND created_at >= date_trunc('month', now(), 'UTC')""",
-        (tenant_id,),
-    ).fetchone()
+    used = monthly_usage(conn, tenant_id)
 
     upgrade = " or upgrade to Pro" if tenant["plan_id"] == "free" else ""
     # Reject a request that *would* cross the limit, so usage never ends above the quota.

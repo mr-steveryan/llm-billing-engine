@@ -52,7 +52,7 @@ every design decision below was proposed with its reasoning and approved or chan
   dropped and rebuilt from `schema.sql` on every run. `DATABASE_URL` is now overwritten, not defaulted.
   Verified a dev marker row survived local and in-container test runs.
 
-## 2026-10-12: Stage 3, Razorpay. (not committed yet)
+## 2026-10-12: Stage 3, Razorpay. Commit `5926b2e` (+ docs `567a5c5`)
 
 - Built: `app/billing.py` (HMAC signature check, dedup, plan sync), `GET`/`POST /checkout`, `POST /webhooks/razorpay`,
   `app/checkout.html`, `scripts/replay_webhook.py`, 10 webhook tests.
@@ -86,3 +86,21 @@ every design decision below was proposed with its reasoning and approved or chan
 - Known limit, still open: one tenant with several subscriptions. Cancelling an *old* subscription after a new one
   is active would downgrade the tenant. The 409 only protects tenants that are already Pro.
 - `EVIDENCE.md` written for every requirement provable so far; `/usage` and README are pending (Stage 4).
+
+## 2026-10-12: Stage 4, Cost rollups and finalization. (not committed yet)
+
+- Built: `GET /usage` (this month's calls and tokens vs. plan limits, per-category token totals, `cost_usd`),
+  `README.md` (setup, plans, pricing, endpoints, mermaid architecture diagram), 5 `/usage` tests (29 total).
+- **Decided:** one shared `meter.monthly_usage()` for both the quota check and `/usage`, so what a tenant is shown and
+  what is enforced can never disagree.
+- **Decided:** `/usage` returns per-category token totals (input, cached, output, reasoning), so anyone can recompute
+  `cost_usd` from the pinned rates. That is what the gate asks for.
+- Fixed while extracting the query: the month dates were cast with the DB session's time zone. That's UTC in Docker,
+  but it would shift by a day on a server set to another zone. They now use `AT TIME ZONE 'UTC'` explicitly.
+- **Gate passed:** against the running API, two calls plus a replay for Tenant B. `/usage` showed 2 calls, tokens
+  30,000 / 19,000 / 8,000 / 3,000 and `cost_usd` 0.1039, matching the hand calculation and `cost_usd()` from the pinned constants.
+- Verified the month boundary test catches a missing month filter (removed it on purpose; the test failed).
+- README diagram checked with mermaid's own parser in Node (jsdom). Rendering with the mermaid CLI needed a headless
+  Chrome download, which was skipped. The visual layout is unchecked until viewed on GitHub.
+- Documented known limits in `DESIGN.md`: multiple subscriptions per tenant, replayed bodies not compared, pricing tiers.
+- `EVIDENCE.md`: all 10 requirement boxes now proven.
