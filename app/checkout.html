@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upgrade to Pro</title>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+  <h1>Upgrade to Pro (Razorpay test mode)</h1>
+  <label for="key">Tenant API key</label>
+  <input id="key" value="demo-key-tenant-a" size="30">
+  <button id="pay">Subscribe to Pro</button>
+  <p id="msg" role="status"></p>
+
+  <script>
+    const msg = document.getElementById("msg");
+    document.getElementById("pay").onclick = async () => {
+      const res = await fetch("/checkout", { method: "POST", headers: { "X-API-Key": document.getElementById("key").value } });
+      const data = await res.json();
+      if (!res.ok) { msg.textContent = data.detail; return; }
+      new Razorpay({
+        key: data.key_id,
+        subscription_id: data.subscription_id,
+        name: "LLM Billing Engine",
+        description: "Pro plan",
+        // Not trusted for billing: the plan flips only when the signed webhook arrives.
+        handler: () => { msg.textContent = "Payment submitted. Your plan updates when Razorpay's webhook arrives."; },
+      }).open();
+    };
+  </script>
+</body>
+</html>

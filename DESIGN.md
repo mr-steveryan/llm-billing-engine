@@ -81,11 +81,21 @@ Each category is priced at its own rate first, then summed. Raw token counts are
 insert `x-razorpay-event-id` into `webhook_events` (conflict → 200 "duplicate ignored") → upsert subscription + tenant,
 **in the same transaction** as the dedup insert, so an event can never be marked seen without being applied.
 
-| Razorpay event | Tenant plan / status |
-|----------------|----------------------|
-| `subscription.activated` | pro / active |
-| `subscription.halted` | pro / past_due → 402 |
-| `subscription.cancelled` | free / active |
-| `subscription.updated` | subscription status mirrored |
+The tenant is set from the subscription **status** in the payload, not the event name, so every `subscription.*`
+event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows one rule:
+
+| Subscription status | Tenant plan / status |
+|---------------------|----------------------|
+| `active` | pro / active |
+| `halted` (all payment retries failed) | pro / past_due → 402 |
+| `cancelled`, `completed`, `expired` | free / active |
+| `created`, `authenticated`, `pending`, `paused` | mirrored in `subscriptions`; tenant unchanged (`pending` = still retrying, keep access) |
+
+- **Out-of-order delivery:** `subscriptions.updated_at` holds the Razorpay `created_at` of the last applied event.
+  An older event is skipped, so a late `activated` can't undo a `cancelled`.
+- **Checkout:** `POST /checkout` creates the subscription with `notes.tenant_id` set server-side from the API key, and
+  returns 409 if the tenant is already Pro (a second subscription would double-charge). The browser's success
+  callback is ignored; only the webhook changes the plan.
+- **Replay locally:** `uv run scripts/replay_webhook.py` sends valid → replayed → forged.
 
 Out of scope: invoices, proration, overage billing, dashboard, admin API, migrations tool.

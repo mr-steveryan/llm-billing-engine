@@ -1,4 +1,5 @@
 import psycopg
+from psycopg.rows import DictRow
 from pydantic import BaseModel, Field, model_validator
 
 from app.pricing import cost_usd
@@ -27,7 +28,7 @@ class BillingError(Exception):
         self.message = message
 
 
-def record(conn: psycopg.Connection, tenant_id, idempotency_key: str, usage: Usage) -> tuple[dict, bool]:
+def record(conn: psycopg.Connection[DictRow], tenant_id, idempotency_key: str, usage: Usage) -> tuple[DictRow, bool]:
     """Record one billable call. Returns (event, replayed). Raises BillingError for 402/429.
 
     Runs inside the caller's transaction; a raised error rolls everything back, so rejected calls store nothing.

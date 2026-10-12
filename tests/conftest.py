@@ -9,6 +9,12 @@ from psycopg.conninfo import make_conninfo
 DEV_URL = os.environ.get("DATABASE_URL", "postgresql://billing:billing@localhost:5432/billing")
 TEST_URL = make_conninfo(DEV_URL, dbname="billing_test")
 os.environ["DATABASE_URL"] = TEST_URL  # overwrite, not setdefault: the app under test must only see billing_test
+# Env vars beat .env in pydantic-settings, so these fakes always win: tests never see your real keys
+# and don't need a .env to exist. Set before app imports, because settings load at import time.
+os.environ["RAZORPAY_KEY_ID"] = "rzp_test_fake"
+os.environ["RAZORPAY_KEY_SECRET"] = "fake-key-secret"
+os.environ["RAZORPAY_WEBHOOK_SECRET"] = "test-webhook-secret"  # tests sign their own events with this
+os.environ["RAZORPAY_PLAN_ID"] = "plan_fake000000000"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -39,6 +45,8 @@ def clean_db(test_database):
     # Wipes usage and resets plans in billing_test: every test starts from an empty month on Free.
     with connect() as conn:
         conn.execute("DELETE FROM usage_events")
+        conn.execute("DELETE FROM webhook_events")
+        conn.execute("DELETE FROM subscriptions")
         conn.execute("UPDATE tenants SET plan_id = 'free', status = 'active'")
 
 

@@ -18,6 +18,7 @@ services:
 
   api:
     build: .
+    env_file: .env  # Razorpay keys; gitignored, never baked into the image
     environment:
       DATABASE_URL: postgresql://billing:billing@db:5432/billing
     ports:

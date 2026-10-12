@@ -24,6 +24,7 @@ CREATE TABLE tenants (
 
 -- One row per Razorpay subscription. id is Razorpay's own id (sub_...), so webhooks upsert by it directly.
 -- status has no CHECK: it mirrors Razorpay's values verbatim, and we must not reject a status they add later.
+-- updated_at = created_at of the last Razorpay event applied; older events arriving late are ignored.
 CREATE TABLE subscriptions (
     id         text        PRIMARY KEY,
     tenant_id  uuid        NOT NULL REFERENCES tenants (id),
