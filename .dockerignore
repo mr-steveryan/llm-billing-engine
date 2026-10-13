@@ -15,8 +15,8 @@ wheels
 .env
 .pytest_cache
 .claude
-prompt.md
-requirements.md
+.docs
+backups
 
 # Docker only: never needed inside the image
 .git

@@ -275,3 +275,21 @@ Ran `/ponytail-audit` again. It reported 1 finding, caused by the previous fix (
   status Razorpay just reported (fetched with our secret key, so as trustworthy as a signed webhook) before starting
   the new subscription. The tenant's plan still changes only through webhooks.
 - 46 tests pass (1 new, 1 extended). Both fail without the fix.
+
+## 2026-10-13: Clean rebuild and slimmer API image
+
+A final audit found the running dev database did not match `schema.sql`: it had four `overage_*` columns from an
+uncommitted overage experiment (added by hand-run SQL, since `schema.sql` only runs on an empty volume), and orphan
+`.pyc` files (`test_overage`, `test_zz_probe`) whose sources were gone. None of it was in git.
+- Deleted the Python and pytest caches, then `docker compose down -v` and rebuilt and seeded exactly as `capstone.yaml`
+  does. The new database has no overage columns. `backups/billing-2026-10-13.sql` (gitignored) still holds the old one.
+- **Private notes were inside the API image.** `.gitignore` had moved to `.docs/`, but `.dockerignore` still listed the
+  old `prompt.md`/`requirements.md`, so `.docs/` was copied to `/app/.docs`. `.dockerignore` now lists `.docs`.
+- **Image 436 MB → 253 MB**, same behaviour:
+  - Two-stage Dockerfile: uv builds `.venv` in the first stage; the final stage copies only `.venv`, so uv itself
+    (47 MB) and its download cache (62 MB) stay behind. The server starts with `.venv/bin/uvicorn` instead of `uv run`.
+  - `COPY app ./app` instead of `COPY . .`: the image holds only `.venv` and `app/`. Docs, tests, scripts and the SQL
+    files (mounted into the db container from the host) were never read there.
+  - `uvicorn[standard]` → `uvicorn`: drops uvloop, httptools, watchfiles, websockets and PyYAML (lock 40 → 35
+    packages), none of which the app uses. Requests are served by the pure-Python defaults instead.
+- 46 tests pass; all `capstone.yaml` endpoint probes return their expected status on the rebuilt stack.

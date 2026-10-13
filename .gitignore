@@ -16,3 +16,6 @@ wheels/
 
 .docs/
 
+
+# Local DB dumps (contain tenant data)
+backups/
