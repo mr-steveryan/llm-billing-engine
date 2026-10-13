@@ -30,6 +30,13 @@ below, ran the real Razorpay checkouts, and reviewed each stage before committin
 - Gave a wrong reason for `bigint` and left stale labels in the docs (found by the review).
 - Documented the several-subscriptions downgrade as reachable only outside `/checkout`; `/checkout` itself could
   trigger it (found by the second audit).
+- Added a direct `import requests` without declaring it; it only worked through razorpay's own dependency (found by a
+  classification workflow; now declared in `pyproject.toml`).
+- Its first commit plan named the four files the migrations commit depends on (`Dockerfile`, `docker-compose.yml`,
+  `capstone.yaml`, `tests/conftest.py`) only in a table column. They were left unstaged, then lost in a `git reset --hard`;
+  the AI recreated them from its own edits, verified by 55 passing tests.
+- Exported the migrations commit as a patch that silently dropped the `schema.sql` deletion (caught by its own dry run).
+- Made a commit I hadn't asked for. I rewound the session and soft-reset it.
 
 **What I changed or decided**
 - Razorpay instead of Stripe; 429 = quota exhausted, 402 = subscription halted (all payment retries failed); Pro = 50,000 calls / 10M tokens.
@@ -38,6 +45,8 @@ below, ran the real Razorpay checkouts, and reviewed each stage before committin
 - Postgres 18, `pydantic-settings` for config, ngrok's fixed domain for webhooks, and `.gitignore` from `uv init`.
 - Asked for: the separate test database, the type fix, the stale-checkout fix, the ₹-vs-USD clarification,
   the Stripe → Razorpay mapping in DESIGN.md, and this log. I made every commit myself.
+- After the evaluation: fix R1, R2 and R4 now; leave R3 (background job) unbuilt and say so in the README, in my wording;
+  plain `ngrok http 8000`; docs split so each commit's docs match its code.
 
 ## 2026-10-10: Planning
 
@@ -301,3 +310,28 @@ The README showed how to start the stack but not how to stop it; the only shutdo
 **Run**, and a table of every stack command (start/rebuild, stop, start, down, `.env` reload, ps, logs, wipe) with
 whether each keeps the database. Checked on the running stack: data and the `pgdata` volume survived both
 `stop`/`start` and `down`/`up`.
+
+## 2026-10-13: Evaluation fixes: thin HTTP layer, boundary validation, migrations. Commits `TBD`
+
+Two evaluation workflows (4 agents each) graded the repo against `.docs/evaluate.md` and `.docs/sections.md`.
+Code passed everything except: R1 layering and R2 validation (partial), R3 background job (missing), R4 migrations
+(partial), plus `.env.example` without `DATABASE_URL` and reformatted `/usage` output in EVIDENCE §4.
+- **R2, no 500s at the boundary.** A signed webhook that isn't valid JSON, lacks fields, or has an out-of-range
+  `created_at` now gets 400 (pydantic `RazorpayEvent`). An unknown or invalid `notes.tenant_id` is acknowledged with
+  200 "ignored: unknown tenant" (it can never succeed on retry). A Razorpay error or timeout in `/checkout` gets 502
+  and stores nothing. The old failed-apply test used an unknown tenant to crash; it now forces the crash another way.
+- **R1, thin routes.** `main.py` only checks input and maps errors to status codes. Checkout logic moved to
+  `billing.start_checkout`, the API-key lookup to `meter.tenant_for_key`, the `/usage` response to `meter.usage_summary`.
+  No repository layer: at this size it would add files, not correctness (DESIGN.md "Layers").
+- **R4, migrations.** `schema.sql` → `migrations/0001_init.sql`; `0002` adds the missing `subscriptions(tenant_id)` index.
+  `app/migrate.py` (no new dependency) applies each file once under an advisory lock, recorded in `schema_migrations`.
+  The API container migrates before uvicorn starts; the tests use the same runner. `seed.sql` left Postgres's init folder
+  (it would run before the tables exist) and is mounted at `/seed/seed.sql`. The existing dev volume needed one
+  `docker compose down -v`; after it, a restart logs "none (up to date)".
+- **R3 not built.** README Limitations now says so.
+- **Evidence.** After a fresh real Razorpay test checkout (Tenant A, `sub_TnQWdwDwIA9Rwv`), EVIDENCE §4 and §7 were
+  re-captured raw, and the test list updated.
+- **Docs.** `DATABASE_URL` in `.env.example`; README endpoint table, layout and stack commands updated; a note on getting
+  ngrok's free dev domain, checked against ngrok's docs.
+- Split into four commits, each checked on its own in a temporary worktree: 55 tests pass at every step, and the
+  commit-2 image ships both migrations.
