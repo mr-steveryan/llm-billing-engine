@@ -40,6 +40,8 @@ tests/test_checkout.py::test_checkout_refuses_tenant_already_on_pro PASSED
 tests/test_checkout.py::test_reuse_asks_razorpay_first PASSED
 tests/test_checkout.py::test_missed_webhook_paid_subscription_blocks_a_second_one PASSED
 tests/test_checkout.py::test_dead_subscription_at_razorpay_starts_a_fresh_one PASSED
+tests/test_checkout.py::test_razorpay_calls_have_a_timeout PASSED
+tests/test_checkout.py::test_simultaneous_checkouts_create_one_subscription PASSED
 tests/test_metering.py::test_same_request_twice_creates_one_event PASSED
 tests/test_metering.py::test_concurrent_retries_of_one_request_create_one_event PASSED
 tests/test_metering.py::test_replay_returns_original_even_when_tenant_is_now_blocked PASSED
@@ -69,7 +71,7 @@ tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED
 tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED
 tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED
 tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED
-============================== 38 passed in 0.99s ==============================
+============================== 40 passed in 1.03s ==============================
 ```
 Tests run against a separate `billing_test` database, rebuilt from `schema.sql` on every run.
 
@@ -85,6 +87,8 @@ Tests run against a separate `billing_test` database, rebuilt from `schema.sql` 
 | Month filter in `monthly_usage` | `test_last_months_usage_is_not_counted` |
 | Checkout reuse of an unpaid subscription | `test_repeat_checkout_reuses_unpaid_subscription` |
 | Razorpay status check before reuse | `test_reuse_asks_razorpay_first`, `test_missed_webhook_paid_subscription_blocks_a_second_one`, `test_dead_subscription_at_razorpay_starts_a_fresh_one` |
+| Tenant row lock in `/checkout` | `test_simultaneous_checkouts_create_one_subscription` (3/3 runs) |
+| Razorpay call timeout | `test_razorpay_calls_have_a_timeout` |
 | Byte-wise signature compare | `test_non_ascii_signature_is_rejected_not_crashed` (500 `TypeError` without it) |
 | Out-of-order guard's status | `test_out_of_order_older_event_does_not_win` (reported `applied` without it) |
 

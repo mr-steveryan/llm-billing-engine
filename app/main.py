@@ -14,6 +14,10 @@ from app.db import connect
 
 app = FastAPI(title="LLM Billing Engine")
 
+# Seconds per Razorpay API call. The SDK sets no timeout, so a stalled call would hang forever while
+# /checkout holds the tenant row lock, and that tenant's /generate waits on the same lock.
+RAZORPAY_TIMEOUT = 10
+
 
 def tenant_id_for(conn, api_key: str | None):
     # The tenant comes only from the API key, never from the request body: that is the isolation boundary.
@@ -106,7 +110,7 @@ def create_checkout(x_api_key: Annotated[str | None, Header()] = None):
             # Our row is only a mirror and may be stale if a webhook was missed, so ask Razorpay before reusing it.
             # Read-only: the mirror and the tenant's plan still change only through webhooks.
             newest = max(pending, key=lambda s: s["updated_at"])
-            live = client.subscription.fetch(newest["id"])["status"]
+            live = client.subscription.fetch(newest["id"], timeout=RAZORPAY_TIMEOUT)["status"]
             if live == "created":
                 return {"key_id": settings.razorpay_key_id, "subscription_id": newest["id"]}
             if live not in ("cancelled", "completed", "expired"):  # live at Razorpay (e.g. paid): never create a second
@@ -118,7 +122,7 @@ def create_checkout(x_api_key: Annotated[str | None, Header()] = None):
             "plan_id": settings.razorpay_plan_id,
             "total_count": 12,  # 12 monthly cycles; Razorpay requires an end
             "notes": {"tenant_id": str(tenant_id)},
-        })
+        }, timeout=RAZORPAY_TIMEOUT)
         conn.execute(
             "INSERT INTO subscriptions (id, tenant_id, status, updated_at) VALUES (%s, %s, %s, to_timestamp(%s))",
             (sub["id"], tenant_id, sub["status"], sub["created_at"]),

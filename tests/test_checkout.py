@@ -1,4 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
+from fastapi.testclient import TestClient
 
 import app.main
 from app.config import settings
@@ -14,20 +17,23 @@ class FakeRazorpay:
     # live_status is what Razorpay reports for an existing subscription (set it to simulate a missed webhook).
     def __init__(self, fail=False):
         self.calls, self.fetched, self.fail, self.live_status = [], [], fail, "created"
+        self.kwargs = []  # extra arguments per call, e.g. timeout
         self.subscription = self
 
     def __call__(self, auth):
         return self
 
-    def create(self, payload):
+    def create(self, payload, **kwargs):
         self.calls.append(payload)
+        self.kwargs.append(kwargs)
         if self.fail:
             raise RuntimeError("razorpay down")
         n = len(self.calls)  # a new id per subscription: sub_FAKE0000000001, sub_FAKE0000000002, ...
         return {"id": f"sub_FAKE{n:010d}", "status": "created", "created_at": 1_000 * n}
 
-    def fetch(self, subscription_id):
+    def fetch(self, subscription_id, **kwargs):
         self.fetched.append(subscription_id)
+        self.kwargs.append(kwargs)
         return {"id": subscription_id, "status": self.live_status}
 
 
@@ -116,3 +122,20 @@ def test_dead_subscription_at_razorpay_starts_a_fresh_one(client, fake):
     fake.live_status = "created"
     assert checkout(client).json()["subscription_id"] == "sub_FAKE0000000002"  # the newest one is reused next
     assert fake.fetched[-1] == "sub_FAKE0000000002"
+
+
+def test_razorpay_calls_have_a_timeout(client, fake):
+    checkout(client)  # create
+    checkout(client)  # fetch before reuse
+    assert fake.kwargs == [{"timeout": app.main.RAZORPAY_TIMEOUT}] * 2  # never wait forever while holding the lock
+
+
+def test_simultaneous_checkouts_create_one_subscription(fake):
+    # Double-click or two tabs: the tenant row lock makes them run one at a time, so later ones reuse the first.
+    def click(_):
+        return TestClient(app.main.app).post("/checkout", headers={"X-API-Key": KEY_A})
+    with ThreadPoolExecutor(5) as pool:
+        results = list(pool.map(click, range(5)))
+    assert [r.status_code for r in results] == [200] * 5
+    assert {r.json()["subscription_id"] for r in results} == {SUB_ID}
+    assert len(fake.calls) == 1

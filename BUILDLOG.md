@@ -169,7 +169,7 @@ below, ran the real Razorpay checkouts, and reviewed each stage before committin
 - Not verified: the healthcheck change on a truly fresh database init, because that needs `docker compose down -v`,
   which wipes dev data. The checkout page's error message was not tried in a browser.
 
-## 2026-10-13: Submission requirements (brief Section 10). (not committed yet)
+## 2026-10-13: Submission requirements (brief Section 10). Commit `aef0d53`
 
 - Added `capstone.yaml` (run, seed, test, base_url, endpoints to probe). The run command creates `.env` from
   `.env.example` if missing and uses `docker compose up --wait`, so the seed step never runs against an unready database.
@@ -184,3 +184,23 @@ below, ran the real Razorpay checkouts, and reviewed each stage before committin
   which was left unverified earlier.
 - Secret scan of the whole git history: no `.env` ever committed, no real-looking Razorpay keys, no secret values
   in `.env.example`.
+
+## 2026-10-13: Ponytail audit fixes. (not committed yet)
+
+Ran `/ponytail-audit` on the committed repo. It reported 4 findings, all fixed:
+- **Database open to the network.** Compose published Postgres on all interfaces (`0.0.0.0:5432`), with the password
+  public in this repo, so anyone on the same Wi-Fi could edit tenants. Postgres and the API are now bound to
+  `127.0.0.1`. Checked: closed on the LAN address, open on localhost.
+- **No timeout on Razorpay calls.** The SDK sets none (checked its source), and `/checkout` holds the tenant row lock
+  during the call, so a stalled Razorpay API would also hang that tenant's `/generate`. Both calls now pass
+  `timeout=10`; confirmed the SDK forwards it to the HTTP request.
+- **The checkout lock had no test.** Removing `FOR UPDATE` left every test green. Added a test that sends 5
+  simultaneous checkouts and expects exactly one subscription; it fails 3/3 times without the lock.
+- **30 unused packages.** `fastapi[standard]` (added in Stage 3) pulled in CLIs, a template engine and telemetry
+  libraries (`sentry-sdk`, `opentelemetry-*`) that nothing imports. Switched to plain `fastapi`: `uv.lock` went from
+  70 to 40 packages.
+- **Found while verifying: the API had no healthcheck,** so `docker compose up --wait` returned before Uvicorn accepted
+  requests, and probes sent straight after it failed (curl 000). Added a healthcheck that calls `/health` (which also
+  queries the DB) with Python's urllib. Now 3/3 recreate-and-probe-immediately runs return 200, and the same
+  command fails (exit 1) when nothing is listening.
+- 40 tests pass. Containers rebuilt; health, usage and webhook probes OK over localhost.

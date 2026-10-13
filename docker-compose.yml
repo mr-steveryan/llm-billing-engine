@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: billing
       POSTGRES_DB: billing
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # localhost only: the DB password is public in this repo
     volumes:
       - pgdata:/var/lib/postgresql
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -23,10 +23,16 @@ services:
     environment:
       DATABASE_URL: postgresql://billing:billing@db:5432/billing
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # localhost only; ngrok also connects via localhost
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      # Healthy only once /health answers (it queries the DB), so `up --wait` returns when requests will work.
+      # Python's urllib because the slim image has no curl; 127.0.0.1 because uvicorn listens on IPv4 only.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 2s
+      retries: 15
 
 volumes:
   pgdata:
