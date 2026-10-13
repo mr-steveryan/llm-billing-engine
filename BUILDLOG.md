@@ -244,7 +244,7 @@ Ran `/ponytail-review` on the third audit's fix (`c3f70d9`). It reported 1 findi
   cancel raise on purpose: the test now fails (`assert [] == ['applied']`).
 - 44 tests pass.
 
-## 2026-10-13: Live-behaviour, fresh-start and load checks
+## 2026-10-13: Live-behaviour, fresh-start and load checks. Commit `87c917b`
 
 Checked the three items the audits had left as "not checked":
 - **Razorpay behaviour (docs + our real webhook log).** Razorpay waits 5 s for a reply, retries with backoff for
