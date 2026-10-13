@@ -105,7 +105,7 @@ every design decision below was proposed with its reasoning and approved or chan
 - Documented known limits in `DESIGN.md`: multiple subscriptions per tenant, replayed bodies not compared, pricing tiers.
 - `EVIDENCE.md`: all 10 requirement boxes now proven.
 
-## 2026-10-13: Review and fixes. (not committed yet)
+## 2026-10-13: Review and fixes. Commit `9c44613`
 
 - Ran a 3-agent read-only review (logic bugs, doc accuracy, tests and setup). It reported 14 findings, and each one
   was checked against the code before fixing. The fixes were then made by 3 agents, each owning a separate set of files.
