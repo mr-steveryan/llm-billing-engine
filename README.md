@@ -164,8 +164,15 @@ After `.env` changes: `docker compose up -d --force-recreate api`. Schema change
 
 **Webhooks (only for real payments).** Razorpay must reach your laptop:
 ```
-ngrok http --url=<your-ngrok-dev-domain> 8000
+ngrok http 8000
 ```
+**Getting the free ngrok dev domain:** sign up at [ngrok.com/signup](https://ngrok.com/signup), install the agent
+(`brew install ngrok` on macOS), and connect it once with `ngrok config add-authtoken <token>` (the token is in the
+ngrok dashboard). Every ngrok account comes with one free dev domain, assigned automatically (like
+`your-assigned-name.ngrok-free.app`). It can't be changed and stays the same across restarts, so the Razorpay webhook
+URL below is set only once. The command above uses it automatically and prints it as the forwarding URL.
+Choosing a different domain needs a paid plan. Source: [ngrok docs, Domains](https://ngrok.com/docs/gateway/domains)
+and [Free plan limits](https://ngrok.com/docs/pricing-limits/free-plan-limits) (checked 2026-10-13).
 In the Razorpay dashboard → Webhooks, add `https://<your-ngrok-dev-domain>/webhooks/razorpay` (no `:8000`),
 use your `RAZORPAY_WEBHOOK_SECRET`, and tick **all `subscription.*` events**. Without those, only `payment.*`
 events arrive and plans never change.
@@ -224,6 +231,7 @@ capstone.yaml      evaluator manifest: run, seed, test, base_url, endpoints
 
 Honest list of what this build does not do, or does only partly:
 
+- No background job. All work runs inside the request. There is no worker, no app-owned retry and no failure alert; Razorpay's own webhook retries are the only retry path.
 - **Test mode only.** Payments run in Razorpay test mode; no real money has moved and live mode was never tried.
 - **Token counts are trusted.** The caller reports its own token counts (the brief allows simulated tokens) and no model is
   called, so a client could under-report. A real deployment would meter at the model proxy instead.
