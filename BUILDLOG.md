@@ -265,7 +265,7 @@ Checked the three items the audits had left as "not checked":
   above the expected load; a running monthly total would be the change if that ever stops being true.
 - 45 tests pass (1 new). The new test fails without the fix.
 
-## 2026-10-13: Fourth Ponytail audit fix
+## 2026-10-13: Fourth Ponytail audit fix. Commit `cf9b2b2`
 
 Ran `/ponytail-audit` again. It reported 1 finding, caused by the previous fix (`authenticated` counted as live):
 - **A cancelled tenant could keep Pro for free.** When `/checkout` found an earlier subscription dead at Razorpay,
