@@ -1,6 +1,7 @@
 # Design — LLM Usage Metering & Billing Engine
 
-Three paths, nothing else: **meter** (`POST /generate`), **read** (`GET /usage`), **payment sync** (`POST /webhooks/razorpay`).
+Three core paths: **meter** (`POST /generate`), **read** (`GET /usage`), **payment sync** (`POST /webhooks/razorpay`),
+plus `GET`/`POST /checkout` to start a subscription and `GET /health`.
 Razorpay is the source of truth for payments; our database mirrors it only through signature-verified webhooks.
 
 ## Plans
@@ -24,7 +25,8 @@ Month = calendar month in **UTC**, resetting at 00:00 UTC on the 1st. Token quot
 | `webhook_events` | Razorpay events already applied | PK `event_id` = deduplication. |
 
 Data-type choices:
-- **`bigint` for tokens:** int32 tops out at ~2.1B, and one busy month of sums passes that.
+- **`bigint` for tokens:** headroom for single values and plan limits beyond int32's ~2.1B, and cheap at this scale.
+  (Monthly sums aren't the reason: Postgres widens `sum()` results anyway.)
 - **`numeric` for money, never `float`:** floats can't store 0.1 exactly, and money totals must add up exactly.
   10 decimal places, because one cached token costs fractions of a micro-dollar.
 - **`timestamptz`:** stores an absolute instant, so "this month in UTC" is unambiguous regardless of server time zone.
@@ -47,8 +49,12 @@ Tokens are simulated by the caller. No model is called. Invalid shape (negative,
 |---------|--------|------|
 | New event recorded | 200 | `{event_id, cost_usd, replayed: false}` |
 | Same Idempotency-Key again | 200 | the **original** event, `replayed: true`, no new row |
-| Tenant `past_due` (Razorpay payment failed) | **402** | "Payment failed for your subscription; update your payment method." |
-| Call or token quota would be exceeded | **429** | "Monthly <calls/tokens> quota of N on plan X exhausted; resets <date> or upgrade to Pro." |
+| Tenant `past_due` (subscription `halted`: all payment retries failed) | **402** | "Payment failed for your subscription; update your payment method to continue." |
+| Call quota would be exceeded | **429** | "Monthly API call quota of N on plan 'X' exhausted; resets <date> (UTC)." |
+| Token quota would be exceeded | **429** | "Monthly token quota of N on plan 'X' would be exceeded (<used> used + <requested> requested); resets <date> (UTC)." |
+
+For Free tenants both 429 messages end with " or upgrade to Pro" before the final period.
+A failed charge alone doesn't block: while Razorpay retries (subscription `pending`) the tenant keeps access.
 
 `GET /usage` → `{ plan, status, period: {start, resets_on}, calls: {used, limit},
 tokens: {used, limit, input, cached_input, output, reasoning}, cost_usd }`, summed from this month's events.
@@ -66,15 +72,15 @@ same function (`meter.monthly_usage`), so what a tenant is shown and what is enf
 
 Proven by tests: removing the `FOR UPDATE` makes both concurrency tests fail (10 parallel requests overshoot the quota / double-insert).
 
-Rejected requests store nothing. We check the quota *before* inserting, unlike the brief's diagram, so a rejected call is never billed.
+Rejected requests store nothing. We check the quota *before* inserting, unlike the brief's diagram, so a rejected call is never recorded or counted.
 Known limit: a replay with the same key but a different body returns the original result without comparing bodies.
 
-## Cost formula (rates pinned in `app/pricing.py`, Stage 4)
+## Cost formula (rates pinned in `app/pricing.py`)
 
 ```
 cost = ( (input − cached) × input_rate
        + cached           × cached_input_rate      # cheaper
-       + output           × output_rate ) / 1,000,000   # reasoning ⊂ output, billed at output rate once
+       + output           × output_rate ) / 1,000,000   # reasoning ⊂ output, priced at output rate once
 ```
 Each category is priced at its own rate first, then summed. Raw token counts are never added before pricing.
 
@@ -114,17 +120,23 @@ event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows on
 | `created`, `authenticated`, `pending`, `paused` | mirrored in `subscriptions`; tenant unchanged (`pending` = still retrying, keep access) |
 
 - **Out-of-order delivery:** `subscriptions.updated_at` holds the Razorpay `created_at` of the last applied event.
-  An older event is skipped, so a late `activated` can't undo a `cancelled`.
-- **Checkout:** `POST /checkout` creates the subscription with `notes.tenant_id` set server-side from the API key, and
-  returns 409 if the tenant is already Pro (a second subscription would double-charge). The browser's success
-  callback is ignored; only the webhook changes the plan.
+  An older event is skipped (200 `"ignored: older than last applied event"`), so a late `activated` can't undo a `cancelled`.
+- **Checkout:** `POST /checkout` locks the tenant row, then: 409 if the tenant is already Pro; 409 if a subscription is
+  `authenticated` (awaiting its first charge). If an unpaid `created` subscription exists, its **real status is fetched
+  from Razorpay** first, because our row is only a mirror and is stale if a webhook was missed:
+  still `created` → **reused** (same `subscription_id`); live (`authenticated`/`active`/`pending`/`halted`/`paused`,
+  e.g. paid but the webhook never arrived) → **409**, never a second subscription; dead (`cancelled`/`completed`/`expired`)
+  → a fresh one is created. The fetch is read-only: the mirror and the tenant's plan still change only through webhooks.
+  A new subscription gets `notes.tenant_id` set server-side from the API key and is recorded as `created` immediately,
+  so repeat clicks find it. Double-clicks, two tabs, or a missed webhook can't create two live subscriptions.
+  The browser's success callback is ignored; only the webhook changes the plan.
 - **Replay locally:** `uv run scripts/replay_webhook.py` sends valid → replayed → forged.
 
 ## Known limits
 
 - **One tenant, several subscriptions.** Any `cancelled` event moves its tenant to Free, even when another of that
-  tenant's subscriptions is still active. `/checkout` refuses tenants already on Pro, but abandoned (unpaid) checkouts
-  leave `created` subscriptions behind; cancelling one of those while the tenant is Pro would downgrade it.
+  tenant's subscriptions is still active. `/checkout` never leaves more than one open subscription per tenant, so this
+  only applies to subscriptions created for the same tenant outside `/checkout` (e.g. by hand with its `tenant_id`).
   Fix if needed: derive the plan from *all* of the tenant's subscriptions (Pro if any is active).
 - **Replay body not compared.** Same `Idempotency-Key` with a different body returns the original result.
 - **Pricing tiers.** No cache-write or long-context (>272K) rates; usage events don't carry that information.

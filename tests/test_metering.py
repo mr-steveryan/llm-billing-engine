@@ -128,7 +128,7 @@ def test_cost_uses_category_rates_not_a_token_sum(client):
     # 10,000 input of which 4,000 cached; 5,000 output of which 2,000 reasoning.
     #   6,000 uncached × $2.00/M  = $0.012
     #   4,000 cached   × $0.10/M  = $0.0004
-    #   5,000 output   × $10.00/M = $0.05   (reasoning is inside output, billed once)
+    #   5,000 output   × $10.00/M = $0.05   (reasoning is inside output, counted once)
     expected = Decimal("0.0624")
     assert cost_usd(10_000, 4_000, 5_000) == expected
     r = generate(client, "priced", input_tokens=10_000, cached=4_000, output_tokens=5_000, reasoning=2_000)

@@ -1,4 +1,22 @@
+# Mirrors .gitignore. Docker patterns match from the build root only, so "**/" is needed for "any depth".
+
+# Python-generated files
+**/__pycache__
+**/*.py[oc]
+build
+dist
+wheels
+**/*.egg-info
+
+# Virtual environments
 .venv
-.git
-__pycache__
+
+# Project
 .env
+.pytest_cache
+.claude
+prompt.md
+requirements.md
+
+# Docker only: never needed inside the image
+.git

@@ -12,7 +12,8 @@ services:
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U billing"]
+      # TCP, not the socket: the init-time temp server (running schema/seed) listens only on the socket
+      test: ["CMD-SHELL", "pg_isready -h localhost -U billing -d billing"]
       interval: 2s
       retries: 15
 

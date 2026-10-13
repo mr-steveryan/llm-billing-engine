@@ -16,17 +16,26 @@
   <script>
     const msg = document.getElementById("msg");
     document.getElementById("pay").onclick = async () => {
-      const res = await fetch("/checkout", { method: "POST", headers: { "X-API-Key": document.getElementById("key").value } });
-      const data = await res.json();
-      if (!res.ok) { msg.textContent = data.detail; return; }
-      new Razorpay({
-        key: data.key_id,
-        subscription_id: data.subscription_id,
-        name: "LLM Billing Engine",
-        description: "Pro plan",
-        // Not trusted for billing: the plan flips only when the signed webhook arrives.
-        handler: () => { msg.textContent = "Payment submitted. Your plan updates when Razorpay's webhook arrives."; },
-      }).open();
+      try {
+        const res = await fetch("/checkout", { method: "POST", headers: { "X-API-Key": document.getElementById("key").value } });
+        if (!res.ok) {
+          // Error bodies aren't always JSON (e.g. a plain-text 500), so fall back to the status code.
+          const data = await res.json().catch(() => null);
+          msg.textContent = data?.detail ?? `Checkout failed (HTTP ${res.status}).`;
+          return;
+        }
+        const data = await res.json();
+        new Razorpay({
+          key: data.key_id,
+          subscription_id: data.subscription_id,
+          name: "LLM Billing Engine",
+          description: "Pro plan",
+          // Not trusted for billing: the plan flips only when the signed webhook arrives.
+          handler: () => { msg.textContent = "Payment submitted. Your plan updates when Razorpay's webhook arrives."; },
+        }).open();
+      } catch (err) {
+        msg.textContent = `Could not start checkout: ${err.message}`;
+      }
     };
   </script>
 </body>

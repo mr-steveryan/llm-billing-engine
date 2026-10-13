@@ -6,7 +6,7 @@ Tenants **pay** only the subscription price; the token cost is a figure, not a c
 [What the customer pays vs. what usage costs](#what-the-customer-pays-vs-what-usage-costs)).
 Pro subscriptions are paid through **Razorpay** (test mode); the database mirrors Razorpay only through signed webhooks.
 
-- **Meter:** `POST /generate` records one usage event per `Idempotency-Key`. Over quota → **429**, payment failed → **402**.
+- **Meter:** `POST /generate` records one usage event per `Idempotency-Key`. Over quota → **429**; subscription halted after all payment retries failed → **402**.
 - **Read:** `GET /usage` shows this month's calls, tokens and cost against the plan's limits.
 - **Pay:** `/checkout` → Razorpay Checkout → signed webhook → tenant plan updated.
 
@@ -156,11 +156,11 @@ uv run scripts/replay_webhook.py [tenant_id]
 
 | Method | Path | Auth | Responses |
 |--------|------|------|-----------|
-| POST | `/generate` | `X-API-Key`, `Idempotency-Key` | 200 event · 400 no idempotency key · 401 bad key · 402 payment failed · 422 invalid tokens · 429 quota |
+| POST | `/generate` | `X-API-Key`, `Idempotency-Key` | 200 event · 400 no idempotency key · 401 bad key · 402 subscription halted (all payment retries failed) · 422 invalid tokens · 429 quota |
 | GET | `/usage` | `X-API-Key` | 200 usage for the current month · 401 |
 | GET | `/checkout` | – | Checkout page |
-| POST | `/checkout` | `X-API-Key` | 200 `{key_id, subscription_id}` · 401 · 409 already Pro |
-| POST | `/webhooks/razorpay` | Razorpay signature | 200 applied / duplicate ignored / ignored · 400 bad signature or missing event id |
+| POST | `/checkout` | `X-API-Key` | 200 `{key_id, subscription_id}` (an unpaid subscription is reused after checking its real status at Razorpay) · 401 · 409 already Pro, or a subscription already authorised/live at Razorpay |
+| POST | `/webhooks/razorpay` | Razorpay signature | 200 applied / duplicate ignored / ignored: older than last applied event / ignored: subscription has no tenant_id · 400 bad signature or missing event id |
 | GET | `/health` | – | 200 when the database is reachable |
 
 ## Project layout
@@ -183,6 +183,6 @@ tests/             pytest against real Postgres
 
 Invoices, proration, overage billing, dashboards, an admin API, and a migrations tool. Kept out on purpose, per the brief.
 
-**Known limit:** one tenant with several Razorpay subscriptions. Cancelling an *older* subscription after a newer one
-is active would downgrade the tenant. `/checkout` refuses tenants that are already Pro, but abandoned, unpaid
-checkouts can still leave extra subscriptions behind. See [DESIGN.md](DESIGN.md).
+**Known limit:** one tenant with several Razorpay subscriptions. Cancelling one while another is active would
+downgrade the tenant. `/checkout` never leaves more than one open subscription per tenant (it reuses an unpaid one),
+so this only applies to subscriptions created for the same tenant outside `/checkout`, e.g. by hand. See [DESIGN.md](DESIGN.md#known-limits).

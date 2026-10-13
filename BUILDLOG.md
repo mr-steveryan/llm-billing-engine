@@ -9,8 +9,8 @@ every design decision below was proposed with its reasoning and approved or chan
 - Brief: tenant plans (Free/Pro), usage metering, quota enforcement (429/402), token cost rules, subscription payments.
 - **Decided:** Razorpay test mode instead of Stripe. The brief's Stripe event names were mapped to Razorpay's
   (`subscription.activated` / `updated` / `halted` / `cancelled`), and a replay script stands in for the Stripe CLI.
-- **Decided (changed from the brief's diagram):** check the quota *before* storing the usage event. Storing first would bill rejected requests.
-- **Decided:** 429 = quota exhausted, 402 = subscription payment failed. Each code means one thing.
+- **Decided (changed from the brief's diagram):** check the quota *before* storing the usage event. Storing first would record and count rejected requests.
+- **Decided:** 429 = quota exhausted, 402 = subscription halted (all payment retries failed). Each code means one thing.
 - **Decided:** token fields use OpenAI's shape (cached ⊂ input, reasoning ⊂ output).
 - **Decided:** Pro = 50,000 calls / 10,000,000 tokens per month. Tenant = customer, no separate customers table.
 - Stack: FastAPI + uv, Postgres in Docker, docker compose on OrbStack, psycopg with plain SQL (no ORM, no migrations tool).
@@ -87,7 +87,7 @@ every design decision below was proposed with its reasoning and approved or chan
   is active would downgrade the tenant. The 409 only protects tenants that are already Pro.
 - `EVIDENCE.md` written for every requirement provable so far; `/usage` and README are pending (Stage 4).
 
-## 2026-10-12: Stage 4, Cost rollups and finalization. (not committed yet)
+## 2026-10-12: Stage 4, Cost rollups and finalization. Commit `e0dfbd6`
 
 - Built: `GET /usage` (this month's calls and tokens vs. plan limits, per-category token totals, `cost_usd`),
   `README.md` (setup, plans, pricing, endpoints, mermaid architecture diagram), 5 `/usage` tests (29 total).
@@ -104,3 +104,34 @@ every design decision below was proposed with its reasoning and approved or chan
   Chrome download, which was skipped. The visual layout is unchecked until viewed on GitHub.
 - Documented known limits in `DESIGN.md`: multiple subscriptions per tenant, replayed bodies not compared, pricing tiers.
 - `EVIDENCE.md`: all 10 requirement boxes now proven.
+
+## 2026-10-13: Review and fixes. (not committed yet)
+
+- Ran a 3-agent read-only review (logic bugs, doc accuracy, tests and setup). It reported 14 findings, and each one
+  was checked against the code before fixing. The fixes were then made by 3 agents, each owning a separate set of files.
+- **Double subscriptions (`/checkout`).** The 409 only fired once a tenant was already Pro, so a double-click before the
+  webhook arrived could create two subscriptions and charge twice a month. Checkout now locks the tenant row,
+  **reuses** an unpaid `created` subscription, refuses with 409 while one is `authenticated`, and records each new
+  subscription immediately. The reviewer's suggested fix (checking the subscriptions table) could not have worked,
+  because rows only appeared there when webhooks arrived. Added the missing test: `notes.tenant_id` comes from the API key.
+- **Webhook signature:** a non-ASCII byte in `X-Razorpay-Signature` crashed the handler with a 500. Reproduced it, then
+  switched to a byte-wise compare, so it now returns 400.
+- **Out-of-order events** skipped by the guard reported `applied`; they now report `ignored: older than last applied event`.
+- **Setup:** the healthcheck now uses TCP, because the socket answered during first-time init before `schema.sql`
+  finished. The runtime image no longer contains pytest or httpx2, so tests run on the host only.
+  `.gitignore` now follows `uv init`'s template; `.dockerignore` mirrors it (with `**/` for nested paths) and
+  excludes `.git` again.
+- **Checkout page:** shows an error instead of nothing when `/checkout` fails with a non-JSON body.
+- **Weak test fixed:** the non-subscription webhook test now checks that the event is actually recorded.
+- **Docs:** corrected the stale "Stage 4" pricing label, the leftover "billed" wording, the wrong `bigint` reason,
+  the 429/402 message templates, "three paths, nothing else", and "402 = payment failed" (402 only follows a halted
+  subscription). EVIDENCE now notes where Tenant B's data was reset between captures.
+- **Follow-up (raised by me): a stale reused checkout.** Our `created` row could be out of date if a webhook was
+  missed. The worst case is a customer who paid but whose webhook never arrived: reuse would send them back to
+  Checkout, and "just create a new one" would charge twice. Before reusing, `/checkout` now **fetches the real status
+  from Razorpay**: `created` → reuse; live (`active`, `authenticated`, ...) → 409; dead (`cancelled`, `expired`, ...)
+  → new subscription. The fetch is read-only, so the mirror and the plan still change only via webhooks. Checked
+  against the real test API (`fetch` of Tenant A's subscription returned `active`).
+- 38 tests pass (9 new). Each new fix was broken on purpose and its test failed.
+- Not verified: the healthcheck change on a truly fresh database init, because that needs `docker compose down -v`,
+  which wipes dev data. The checkout page's error message was not tried in a browser.

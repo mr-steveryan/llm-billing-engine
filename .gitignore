@@ -1,6 +1,17 @@
-.venv/
+# Python-generated files
 __pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Project
 .env
-
-prompt.md 
-
+.pytest_cache/
+.claude/
+prompt.md
+requirements.md

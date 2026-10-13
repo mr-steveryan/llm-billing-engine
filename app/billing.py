@@ -25,7 +25,8 @@ TENANT_STATE = {
 def signature_is_valid(raw_body: bytes, signature: str | None) -> bool:
     # HMAC-SHA256 over the exact bytes Razorpay sent; re-serialized JSON would not match.
     expected = hmac.new(settings.razorpay_webhook_secret.get_secret_value().encode(), raw_body, hashlib.sha256).hexdigest()
-    return signature is not None and hmac.compare_digest(expected, signature)  # constant-time compare
+    # Bytes, not str: compare_digest raises TypeError on non-ASCII str. Starlette decodes headers as latin-1.
+    return signature is not None and hmac.compare_digest(expected.encode(), signature.encode("latin-1"))  # constant-time
 
 
 def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -> str:
@@ -62,7 +63,9 @@ def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -
            RETURNING id""",
         (sub["id"], tenant_id, sub["status"], event["created_at"]),
     ).fetchone()
-    if newer and sub["status"] in TENANT_STATE:
+    if not newer:
+        return "ignored: older than last applied event"
+    if sub["status"] in TENANT_STATE:
         plan_id, status = TENANT_STATE[sub["status"]]
         conn.execute("UPDATE tenants SET plan_id = %s, status = %s WHERE id = %s", (plan_id, status, tenant_id))
     return "applied"

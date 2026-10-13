@@ -88,18 +88,41 @@ def checkout_page():
 
 @app.post("/checkout")
 def create_checkout(x_api_key: Annotated[str | None, Header()] = None):
-    with connect() as conn:
+    with connect() as conn:  # one transaction: if Razorpay raises, nothing is stored
         tenant_id = tenant_id_for(conn, x_api_key)
-        plan = conn.execute("SELECT plan_id FROM tenants WHERE id = %s", (tenant_id,)).fetchone()["plan_id"]
-    if plan == "pro":
-        raise HTTPException(409, "Tenant is already on Pro.")  # a second subscription would double-charge
-    client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret.get_secret_value()))
-    # Server sets tenant_id from the authenticated key; the browser never chooses who gets upgraded.
-    sub = client.subscription.create({
-        "plan_id": settings.razorpay_plan_id,
-        "total_count": 12,  # 12 monthly cycles; Razorpay requires an end
-        "notes": {"tenant_id": str(tenant_id)},
-    })
+        # Row lock serializes concurrent checkouts per tenant; held across the Razorpay call, acceptable at this volume.
+        plan = conn.execute("SELECT plan_id FROM tenants WHERE id = %s FOR UPDATE", (tenant_id,)).fetchone()["plan_id"]
+        if plan == "pro":
+            raise HTTPException(409, "Tenant is already on Pro.")
+        # A second Razorpay subscription would double-charge, so an earlier unpaid or authorised one blocks a new one.
+        pending = conn.execute(
+            "SELECT id, status, updated_at FROM subscriptions WHERE tenant_id = %s AND status IN ('created', 'authenticated')",
+            (tenant_id,),
+        ).fetchall()
+        if any(s["status"] == "authenticated" for s in pending):
+            raise HTTPException(409, "Payment mandate already authorised; awaiting the first charge to activate Pro.")
+        client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret.get_secret_value()))
+        if pending:  # unpaid checkout from an earlier click
+            # Our row is only a mirror and may be stale if a webhook was missed, so ask Razorpay before reusing it.
+            # Read-only: the mirror and the tenant's plan still change only through webhooks.
+            newest = max(pending, key=lambda s: s["updated_at"])
+            live = client.subscription.fetch(newest["id"])["status"]
+            if live == "created":
+                return {"key_id": settings.razorpay_key_id, "subscription_id": newest["id"]}
+            if live not in ("cancelled", "completed", "expired"):  # live at Razorpay (e.g. paid): never create a second
+                raise HTTPException(409, "A subscription is already in progress at Razorpay; "
+                                         "your plan updates when its webhook arrives.")
+            # Dead at Razorpay: fall through and start a fresh subscription.
+        # Server sets tenant_id from the authenticated key; the browser never chooses who gets upgraded.
+        sub = client.subscription.create({
+            "plan_id": settings.razorpay_plan_id,
+            "total_count": 12,  # 12 monthly cycles; Razorpay requires an end
+            "notes": {"tenant_id": str(tenant_id)},
+        })
+        conn.execute(
+            "INSERT INTO subscriptions (id, tenant_id, status, updated_at) VALUES (%s, %s, %s, to_timestamp(%s))",
+            (sub["id"], tenant_id, sub["status"], sub["created_at"]),
+        )
     # The browser's payment "success" callback is never trusted: only the signed webhook changes the plan.
     return {"key_id": settings.razorpay_key_id, "subscription_id": sub["id"]}
 

@@ -31,6 +31,15 @@ Status: ✅ proven.
 
 ```
 $ uv run pytest -v
+tests/test_checkout.py::test_first_checkout_creates_and_stores_subscription_for_key_tenant PASSED
+tests/test_checkout.py::test_repeat_checkout_reuses_unpaid_subscription PASSED
+tests/test_checkout.py::test_checkout_refused_while_mandate_authenticated PASSED
+tests/test_checkout.py::test_razorpay_failure_stores_nothing PASSED
+tests/test_checkout.py::test_later_activation_webhook_still_upgrades PASSED
+tests/test_checkout.py::test_checkout_refuses_tenant_already_on_pro PASSED
+tests/test_checkout.py::test_reuse_asks_razorpay_first PASSED
+tests/test_checkout.py::test_missed_webhook_paid_subscription_blocks_a_second_one PASSED
+tests/test_checkout.py::test_dead_subscription_at_razorpay_starts_a_fresh_one PASSED
 tests/test_metering.py::test_same_request_twice_creates_one_event PASSED
 tests/test_metering.py::test_concurrent_retries_of_one_request_create_one_event PASSED
 tests/test_metering.py::test_replay_returns_original_even_when_tenant_is_now_blocked PASSED
@@ -45,22 +54,22 @@ tests/test_metering.py::test_missing_or_bad_api_key_is_401 PASSED
 tests/test_metering.py::test_missing_idempotency_key_is_400 PASSED
 tests/test_metering.py::test_impossible_token_counts_are_422 PASSED
 tests/test_metering.py::test_cost_uses_category_rates_not_a_token_sum PASSED
+tests/test_usage.py::test_empty_month_shows_zero_usage_and_plan_limits PASSED
+tests/test_usage.py::test_rollup_cost_matches_pinned_pricing_constants PASSED
+tests/test_usage.py::test_last_months_usage_is_not_counted PASSED
+tests/test_usage.py::test_tenant_sees_only_its_own_usage PASSED
+tests/test_usage.py::test_usage_requires_api_key PASSED
 tests/test_webhooks.py::test_activated_flips_tenant_free_to_pro PASSED
 tests/test_webhooks.py::test_forged_signature_is_rejected_and_changes_nothing PASSED
+tests/test_webhooks.py::test_non_ascii_signature_is_rejected_not_crashed PASSED
 tests/test_webhooks.py::test_missing_signature_is_rejected PASSED
 tests/test_webhooks.py::test_replayed_event_is_ignored PASSED
 tests/test_webhooks.py::test_out_of_order_older_event_does_not_win PASSED
 tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED
 tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED
 tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED
-tests/test_webhooks.py::test_checkout_refuses_tenant_already_on_pro PASSED
 tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED
-tests/test_usage.py::test_empty_month_shows_zero_usage_and_plan_limits PASSED
-tests/test_usage.py::test_rollup_cost_matches_pinned_pricing_constants PASSED
-tests/test_usage.py::test_last_months_usage_is_not_counted PASSED
-tests/test_usage.py::test_tenant_sees_only_its_own_usage PASSED
-tests/test_usage.py::test_usage_requires_api_key PASSED
-============================== 29 passed in 0.81s ==============================
+============================== 38 passed in 0.99s ==============================
 ```
 Tests run against a separate `billing_test` database, rebuilt from `schema.sql` on every run.
 
@@ -74,6 +83,10 @@ Tests run against a separate `billing_test` database, rebuilt from `schema.sql` 
 | Signature check | `test_forged_signature_*`, `test_missing_signature_is_rejected` |
 | Empty-notes guard | `test_subscription_not_created_by_checkout_*` (same `TypeError` as production) |
 | Month filter in `monthly_usage` | `test_last_months_usage_is_not_counted` |
+| Checkout reuse of an unpaid subscription | `test_repeat_checkout_reuses_unpaid_subscription` |
+| Razorpay status check before reuse | `test_reuse_asks_razorpay_first`, `test_missed_webhook_paid_subscription_blocks_a_second_one`, `test_dead_subscription_at_razorpay_starts_a_fresh_one` |
+| Byte-wise signature compare | `test_non_ascii_signature_is_rejected_not_crashed` (500 `TypeError` without it) |
+| Out-of-order guard's status | `test_out_of_order_older_event_does_not_win` (reported `applied` without it) |
 
 ---
 
@@ -122,7 +135,8 @@ $ (count again)
 ```
 The 1,000th call is allowed; the 1,001st is rejected and **stores nothing** (the count stays 1,000).
 
-Token quota: a single request that **would** cross 100,000 is rejected whole:
+Token quota: a single request that **would** cross 100,000 is rejected whole. (Tenant B's `usage_events` were deleted
+after the call-quota proof, hence `0 used`.)
 ```
 $ curl ... -H 'Idempotency-Key: evidence-big' -d '{"input_tokens":90000,"cached_input_tokens":0,"output_tokens":10001,"reasoning_tokens":0}'
 {"detail":"Monthly token quota of 100000 on plan 'free' would be exceeded (0 used + 100001 requested); resets 2026-11-01 (UTC) or upgrade to Pro."} HTTP 429
@@ -134,7 +148,7 @@ $ curl ... -H 'Idempotency-Key: evidence-big' -d '{"input_tokens":90000,"cached_
 | Code | When | Captured response |
 |------|------|-------------------|
 | **429** | Call or token quota exhausted | see section 2 |
-| **402** | Subscription payment failed (tenant `past_due`, set by Razorpay `subscription.halted`) | below |
+| **402** | All subscription payment retries failed (tenant `past_due`, set by Razorpay `subscription.halted`) | below |
 | 401 | Missing / wrong API key | `{"detail":"Invalid API key."} HTTP 401` |
 | 400 | Missing `Idempotency-Key` | `test_missing_idempotency_key_is_400` |
 | 422 | Impossible token counts | below |
@@ -155,6 +169,7 @@ The full path from a webhook to a 402 is covered by `test_halted_subscription_bl
 ## 4. Cost: monthly rollup per tenant ✅
 
 **Stage 4 gate: `/usage` numbers match the pinned pricing constants.** Tenant B (Free) sends two calls and one replay.
+Before this, Tenant B's `usage_events` were deleted again and its status reset to `active` after section 3, hence the empty month.
 The expected total was worked out by hand *before* reading `/usage` (rates per 1M tokens):
 
 | Event | input | cached | output (reasoning) | Cost from the pinned rates |
@@ -226,7 +241,7 @@ Worked example: the request from section 1 (10,000 input of which 4,000 cached; 
 |----------|-------:|----------:|-----:|
 | Uncached input | 6,000 | $2.00 | $0.0120 |
 | Cached input | 4,000 | $0.10 | $0.0004 |
-| Output (includes 2,000 reasoning, billed once at the output rate) | 5,000 | $10.00 | $0.0500 |
+| Output (includes 2,000 reasoning, counted once, at the output rate) | 5,000 | $10.00 | $0.0500 |
 | **Total** | | | **$0.0624** |
 
 ```
@@ -237,8 +252,8 @@ The API returned the same value, stored exactly as `numeric` (section 1: `"cost_
 
 Why the rules matter, on the same request:
 - Adding raw tokens and pricing them all as input: 21,000 × $2.00/M = **$0.042** (wrong).
-- Ignoring the cached discount: 10,000 × $2.00/M + 5,000 × $10.00/M = **$0.0700** (overcharges).
-- Pricing reasoning separately as extra output: 7,000 × $10.00/M + input = **$0.0824** (double-bills reasoning).
+- Ignoring the cached discount: 10,000 × $2.00/M + 5,000 × $10.00/M = **$0.0700** (overstates the cost).
+- Pricing reasoning separately as extra output: 7,000 × $10.00/M + input = **$0.0824** (counts reasoning twice).
 
 ## 7. Payments: checkout end-to-end in Razorpay test mode ✅
 

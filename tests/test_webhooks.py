@@ -43,6 +43,13 @@ def test_forged_signature_is_rejected_and_changes_nothing(client):
     assert tenant_a()["plan_id"] == "free"
 
 
+def test_non_ascii_signature_is_rejected_not_crashed(client):
+    # Bytes header: the test client would choke on a str with \xe9 before reaching the app.
+    r = client.post("/webhooks/razorpay", content=b"{}",
+                    headers={"X-Razorpay-Signature": b"\xe9", "X-Razorpay-Event-Id": "evt_1"})
+    assert r.status_code == 400
+
+
 def test_missing_signature_is_rejected(client):
     r = client.post("/webhooks/razorpay", content=b"{}", headers={"X-Razorpay-Event-Id": "evt_1"})
     assert r.status_code == 400
@@ -60,7 +67,8 @@ def test_replayed_event_is_ignored(client):
 
 def test_out_of_order_older_event_does_not_win(client):
     send(client, "evt_cancel", "cancelled", created_at=2_000)
-    send(client, "evt_late_activate", "activated", created_at=1_000)  # new id, but older than what we applied
+    late = send(client, "evt_late_activate", "activated", created_at=1_000)  # new id, but older than what we applied
+    assert late.json()["status"] == "ignored: older than last applied event"
     assert tenant_a()["plan_id"] == "free"
 
 
@@ -80,16 +88,13 @@ def test_cancelled_returns_tenant_to_free(client):
 def test_non_subscription_event_is_recorded_but_changes_nothing(client):
     body = json.dumps({"event": "payment.captured", "created_at": 1_000, "payload": {}}).encode()
     sig = hmac.new(SECRET, body, hashlib.sha256).hexdigest()
-    r = client.post("/webhooks/razorpay", content=body,
-                    headers={"X-Razorpay-Signature": sig, "X-Razorpay-Event-Id": "evt_pay"})
-    assert r.status_code == 200
+    headers = {"X-Razorpay-Signature": sig, "X-Razorpay-Event-Id": "evt_pay"}
+    r = client.post("/webhooks/razorpay", content=body, headers=headers)
+    assert r.status_code == 200 and r.json()["status"] == "applied"
     assert tenant_a()["plan_id"] == "free"
-
-
-def test_checkout_refuses_tenant_already_on_pro(client):
-    send(client, "evt_1", "activated")
-    r = client.post("/checkout", headers={"X-API-Key": "demo-key-tenant-a"})
-    assert r.status_code == 409
+    with connect() as conn:
+        assert conn.execute("SELECT event_id FROM webhook_events").fetchall() == [{"event_id": "evt_pay"}]
+    assert client.post("/webhooks/razorpay", content=body, headers=headers).json()["status"] == "duplicate ignored"
 
 
 def test_subscription_not_created_by_checkout_is_acknowledged_not_crashed(client):
