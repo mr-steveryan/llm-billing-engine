@@ -118,11 +118,27 @@ no step needs a credit card. For real test-mode payments you also need a Razorpa
 It creates `.env` from the placeholders if you don't have one, builds the image, and returns once Postgres is healthy and
 the API is up. The database schema is created from `schema.sql` on first start.
 
+**Stop** (keeps your data): `docker compose down`. Start again with the Run command.
+`docker compose down -v` also deletes the database; only use it after `schema.sql` changes.
+
 **Seed** demo data (two tenants, both on Free). Safe to run any number of times; existing tenants are left as they are:
 ```
 docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/02-seed.sql
 ```
 Demo API keys: `demo-key-tenant-a`, `demo-key-tenant-b`. Check: `curl localhost:8000/health` → `{"status":"ok"}`.
+
+**All stack commands** (run from the repo root):
+
+| To | Command | Database data |
+|----|---------|---------------|
+| Start, or rebuild after code changes | `docker compose up -d --build --wait` | kept |
+| Pause (containers stay, nothing runs) | `docker compose stop` | kept |
+| Resume after a pause | `docker compose start` | kept |
+| Stop and remove containers and network | `docker compose down` | kept |
+| Apply `.env` changes | `docker compose up -d --force-recreate api` | kept |
+| See what is running and healthy | `docker compose ps` | kept |
+| Follow the API's logs | `docker compose logs -f api` | kept |
+| Wipe and start over (after `schema.sql` changes) | `docker compose down -v`, then Run and Seed | **deleted** |
 
 **Test** (on the host; the runtime image has no test tools):
 ```
