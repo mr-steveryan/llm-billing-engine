@@ -213,9 +213,6 @@ Honest list of what this build does not do, or does only partly:
 - **The token cost is a figure, not a charge.** No invoices, proration or overage billing (out of scope per the brief).
   An output-heavy Pro tenant can cost more at provider rates than the ₹ subscription brings in.
 - **One pricing tier.** No cache-write or long-context (>272K) rates; usage events don't carry that information.
-- **Several subscriptions for one tenant.** Any `cancelled` event moves its tenant to Free, even if another of that tenant's
-  subscriptions is still active. `/checkout` never creates a second live one (it checks Razorpay before reusing an unpaid
-  one), so this only happens for subscriptions made for the same tenant outside `/checkout`, e.g. by hand.
 - **Idempotent replays aren't compared.** The same `Idempotency-Key` with a different body returns the original result.
 - **Local webhooks need a tunnel** (ngrok) so Razorpay can reach the laptop.
 - **No admin API.** Tenants come only from `seed.sql`, and the demo API keys there are public on purpose.

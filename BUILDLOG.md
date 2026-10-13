@@ -28,6 +28,8 @@ below, ran the real Razorpay checkouts, and reviewed each stage before committin
   stale subscription without asking Razorpay (I raised it). Its reviewer agent's own suggested fix would not have worked.
 - Used "billed" for the USD token cost, which suggested customers are charged it (I questioned ₹ vs USD; wording fixed).
 - Gave a wrong reason for `bigint` and left stale labels in the docs (found by the review).
+- Documented the several-subscriptions downgrade as reachable only outside `/checkout`; `/checkout` itself could
+  trigger it (found by the second audit).
 
 **What I changed or decided**
 - Razorpay instead of Stripe; 429 = quota exhausted, 402 = subscription halted (all payment retries failed); Pro = 50,000 calls / 10M tokens.
@@ -204,3 +206,21 @@ Ran `/ponytail-audit` on the committed repo. It reported 4 findings, all fixed:
   queries the DB) with Python's urllib. Now 3/3 recreate-and-probe-immediately runs return 200, and the same
   command fails (exit 1) when nothing is listening.
 - 40 tests pass. Containers rebuilt; health, usage and webhook probes OK over localhost.
+
+## 2026-10-13: Second Ponytail audit fixes
+
+Ran `/ponytail-audit` again on the committed repo. It reported 3 findings, all fixed:
+- **A paying tenant could be downgraded by an old subscription.** `/checkout` starts a new subscription when the old
+  one is dead at Razorpay, which happens when the old one's webhook was missed. Razorpay retries failed webhooks,
+  so the old one's late `cancelled` could arrive after the new one was paid and move the tenant to Free. Reproduced
+  with a test first (tenant ended on Free). A downgrade now skips tenants that have another `active` or `halted`
+  subscription. This closes the "several subscriptions" known limit from Stage 3, whose README/DESIGN text wrongly
+  said only subscriptions made outside `/checkout` could trigger it; that text is removed.
+- **A stale `authenticated` row blocked checkout forever.** `/checkout` asked Razorpay before acting on a `created`
+  row, but refused an `authenticated` one with 409 without asking. If that mandate was cancelled and the webhook
+  missed, the tenant could never upgrade. Removed the 2-line early refusal, so both statuses go through the same
+  live check: still live → 409, dead → new subscription.
+- **No test for "dedup row and plan change commit together".** Added one: a signed event for an unknown tenant fails,
+  and `webhook_events` stays empty, so Razorpay's retry is not treated as a duplicate.
+- 43 tests pass (3 new). The first two new tests fail against the old code. The third guards behaviour that already
+  worked, so it passes on both.

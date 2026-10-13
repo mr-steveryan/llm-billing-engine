@@ -103,11 +103,9 @@ def create_checkout(x_api_key: Annotated[str | None, Header()] = None):
             "SELECT id, status, updated_at FROM subscriptions WHERE tenant_id = %s AND status IN ('created', 'authenticated')",
             (tenant_id,),
         ).fetchall()
-        if any(s["status"] == "authenticated" for s in pending):
-            raise HTTPException(409, "Payment mandate already authorised; awaiting the first charge to activate Pro.")
         client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret.get_secret_value()))
-        if pending:  # unpaid checkout from an earlier click
-            # Our row is only a mirror and may be stale if a webhook was missed, so ask Razorpay before reusing it.
+        if pending:  # unpaid or authorised checkout from an earlier click
+            # Our row is only a mirror and may be stale if a webhook was missed, so ask Razorpay before acting on it.
             # Read-only: the mirror and the tenant's plan still change only through webhooks.
             newest = max(pending, key=lambda s: s["updated_at"])
             live = client.subscription.fetch(newest["id"], timeout=RAZORPAY_TIMEOUT)["status"]

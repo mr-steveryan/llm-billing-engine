@@ -73,8 +73,20 @@ def test_checkout_refused_while_mandate_authenticated(client, fake):
     checkout(client)
     with connect() as conn:
         conn.execute("UPDATE subscriptions SET status = 'authenticated' WHERE id = %s", (SUB_ID,))
+    fake.live_status = "authenticated"
     assert checkout(client).status_code == 409
     assert len(fake.calls) == 1
+
+
+def test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout(client, fake):
+    # Mandate cancelled at Razorpay, webhook missed: our row still says 'authenticated'.
+    checkout(client)
+    with connect() as conn:
+        conn.execute("UPDATE subscriptions SET status = 'authenticated' WHERE id = %s", (SUB_ID,))
+    fake.live_status = "cancelled"
+    r = checkout(client)
+    assert r.status_code == 200 and r.json()["subscription_id"] == "sub_FAKE0000000002"
+    assert fake.fetched == [SUB_ID]
 
 
 def test_razorpay_failure_stores_nothing(client, monkeypatch):

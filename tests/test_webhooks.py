@@ -2,6 +2,9 @@ import hashlib
 import hmac
 import json
 
+import psycopg
+import pytest
+
 from app.db import connect
 from tests.conftest import TENANT_A, generate
 
@@ -83,6 +86,30 @@ def test_cancelled_returns_tenant_to_free(client):
     send(client, "evt_1", "activated", created_at=1_000)
     send(client, "evt_2", "cancelled", created_at=2_000)
     assert tenant_a() == {"plan_id": "free", "status": "active"}
+
+
+def test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant(client):
+    # /checkout started sub_B because sub_A was dead at Razorpay; sub_A's cancel webhook is retried after B is paid.
+    send(client, "evt_b_act", "activated", created_at=2_000, sub_id="sub_B")
+    r = send(client, "evt_a_cancel", "cancelled", created_at=1_500, sub_id="sub_A")
+    assert r.json()["status"] == "applied"
+    assert tenant_a() == {"plan_id": "pro", "status": "active"}
+
+
+def test_failed_apply_does_not_mark_event_seen(client):
+    # Dedup row and plan change share one transaction: if applying fails, Razorpay's retry must not be "duplicate".
+    body = json.dumps({
+        "event": "subscription.activated", "created_at": 1_000,
+        "payload": {"subscription": {"entity": {
+            "id": "sub_UNKNOWN0000001", "status": "active", "notes": {"tenant_id": "00000000-0000-7000-8000-0000000000ff"},
+        }}},
+    }).encode()
+    headers = {"X-Razorpay-Signature": hmac.new(SECRET, body, hashlib.sha256).hexdigest(),
+               "X-Razorpay-Event-Id": "evt_unknown_tenant"}
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):  # TestClient re-raises unhandled app errors
+        client.post("/webhooks/razorpay", content=body, headers=headers)
+    with connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM webhook_events").fetchone()["n"] == 0
 
 
 def test_non_subscription_event_is_recorded_but_changes_nothing(client):

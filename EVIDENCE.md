@@ -34,6 +34,7 @@ $ uv run pytest -v
 tests/test_checkout.py::test_first_checkout_creates_and_stores_subscription_for_key_tenant PASSED
 tests/test_checkout.py::test_repeat_checkout_reuses_unpaid_subscription PASSED
 tests/test_checkout.py::test_checkout_refused_while_mandate_authenticated PASSED
+tests/test_checkout.py::test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout PASSED
 tests/test_checkout.py::test_razorpay_failure_stores_nothing PASSED
 tests/test_checkout.py::test_later_activation_webhook_still_upgrades PASSED
 tests/test_checkout.py::test_checkout_refuses_tenant_already_on_pro PASSED
@@ -69,9 +70,11 @@ tests/test_webhooks.py::test_replayed_event_is_ignored PASSED
 tests/test_webhooks.py::test_out_of_order_older_event_does_not_win PASSED
 tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED
 tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED
+tests/test_webhooks.py::test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant PASSED
+tests/test_webhooks.py::test_failed_apply_does_not_mark_event_seen PASSED
 tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED
 tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED
-============================== 40 passed in 1.03s ==============================
+============================== 43 passed in 1.24s ==============================
 ```
 Tests run against a separate `billing_test` database, rebuilt from `schema.sql` on every run.
 
@@ -91,6 +94,8 @@ Tests run against a separate `billing_test` database, rebuilt from `schema.sql` 
 | Razorpay call timeout | `test_razorpay_calls_have_a_timeout` |
 | Byte-wise signature compare | `test_non_ascii_signature_is_rejected_not_crashed` (500 `TypeError` without it) |
 | Out-of-order guard's status | `test_out_of_order_older_event_does_not_win` (reported `applied` without it) |
+| Live-subscription check on downgrade | `test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant` (paying tenant dropped to Free without it) |
+| Razorpay status check for `authenticated` rows | `test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout` (409 forever without it) |
 
 ---
 
@@ -309,7 +314,8 @@ $ docker compose exec -T db psql -U billing -c "SELECT name, plan_id, status FRO
 (Tenant B and the replay rows were reset afterwards.)
 
 Plan/status sync covered by tests: `activated` → pro/active, `halted` → pro/past_due (402), `cancelled` → free,
-an older event arriving late is ignored, and a replay after a cancel does not re-upgrade.
+an older event arriving late is ignored, a replay after a cancel does not re-upgrade, a late `cancelled` from an old
+subscription does not downgrade a tenant paying on a newer one, and a webhook that fails to apply is not marked as seen.
 
 A real production case: a subscription created in the Razorpay dashboard (not by `/checkout`) arrived with
 `"notes": []` and crashed the handler (500) seven times while Razorpay retried. After the fix, the next real retry was acknowledged:

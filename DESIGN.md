@@ -134,14 +134,14 @@ event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows on
 |---------------------|----------------------|
 | `active` | pro / active |
 | `halted` (all payment retries failed) | pro / past_due → 402 |
-| `cancelled`, `completed`, `expired` | free / active |
+| `cancelled`, `completed`, `expired` | free / active, unless another of the tenant's subscriptions is `active`/`halted` |
 | `created`, `authenticated`, `pending`, `paused` | mirrored in `subscriptions`; tenant unchanged (`pending` = still retrying, keep access) |
 
 - **Out-of-order delivery:** `subscriptions.updated_at` holds the Razorpay `created_at` of the last applied event.
   An older event is skipped (200 `"ignored: older than last applied event"`), so a late `activated` can't undo a `cancelled`.
-- **Checkout:** `POST /checkout` locks the tenant row, then: 409 if the tenant is already Pro; 409 if a subscription is
-  `authenticated` (awaiting its first charge). If an unpaid `created` subscription exists, its **real status is fetched
-  from Razorpay** first, because our row is only a mirror and is stale if a webhook was missed:
+- **Checkout:** `POST /checkout` locks the tenant row, then: 409 if the tenant is already Pro. If a `created` or
+  `authenticated` subscription exists, the newest one's **real status is fetched from Razorpay** first, because our
+  row is only a mirror and is stale if a webhook was missed:
   still `created` → **reused** (same `subscription_id`); live (`authenticated`/`active`/`pending`/`halted`/`paused`,
   e.g. paid but the webhook never arrived) → **409**, never a second subscription; dead (`cancelled`/`completed`/`expired`)
   → a fresh one is created. The fetch is read-only: the mirror and the tenant's plan still change only through webhooks.
@@ -152,10 +152,6 @@ event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows on
 
 ## Known limits
 
-- **One tenant, several subscriptions.** Any `cancelled` event moves its tenant to Free, even when another of that
-  tenant's subscriptions is still active. `/checkout` never leaves more than one open subscription per tenant, so this
-  only applies to subscriptions created for the same tenant outside `/checkout` (e.g. by hand with its `tenant_id`).
-  Fix if needed: derive the plan from *all* of the tenant's subscriptions (Pro if any is active).
 - **Replay body not compared.** Same `Idempotency-Key` with a different body returns the original result.
 - **Pricing tiers.** No cache-write or long-context (>272K) rates; usage events don't carry that information.
 
