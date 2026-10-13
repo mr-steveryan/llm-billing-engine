@@ -106,9 +106,11 @@ def test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation():
         return {"event": f"subscription.{name}", "created_at": created_at,
                 "payload": {"subscription": {"entity": {"id": sub_id, "status": status, "notes": {"tenant_id": TENANT_A}}}}}
 
+    results = []  # a thread's exception is only a pytest warning, so the result is checked explicitly
+
     def cancel_old():
         with connect() as conn:
-            billing.apply_event(conn, "evt_a_cancel", event("cancelled", "sub_A", "cancelled", 1_500))
+            results.append(billing.apply_event(conn, "evt_a_cancel", event("cancelled", "sub_A", "cancelled", 1_500)))
 
     with connect() as conn:
         billing.apply_event(conn, "evt_b_act", event("activated", "sub_B", "active", 2_000))
@@ -116,6 +118,7 @@ def test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation():
         other.start()
         time.sleep(0.5)  # let the cancel reach the database while sub_B is uncommitted
     other.join()  # sub_B committed when the with-block closed
+    assert results == ["applied"]  # the cancel really ran
     assert tenant_a() == {"plan_id": "pro", "status": "active"}
 
 

@@ -234,3 +234,12 @@ Ran `/ponytail-audit` a third time. It reported 1 finding, in the previous round
   Reproduced with two real connections. The webhook handler now locks the tenant row first (as `meter.record`
   does), so one tenant's webhooks apply one at a time.
 - 44 tests pass (1 new). The new test failed 3/3 runs without the lock and passed 5/5 with it.
+
+## 2026-10-13: Ponytail review fix
+
+Ran `/ponytail-review` on the third audit's fix (`c3f70d9`). It reported 1 finding:
+- **The race test could pass without proving anything.** The old subscription's `cancelled` runs in a background
+  thread, and pytest only warns (it does not fail) when a thread raises. A crashing cancel left the tenant on Pro, so
+  the test stayed green. The test now records the cancel's result and asserts it was `applied`. Checked by making the
+  cancel raise on purpose: the test now fails (`assert [] == ['applied']`).
+- 44 tests pass.
