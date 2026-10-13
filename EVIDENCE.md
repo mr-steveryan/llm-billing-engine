@@ -1,7 +1,8 @@
 # Evidence
 
-One proof per requirement. Every block is real output captured on **2026-10-12** against the running
-stack (`docker compose up`), using the seeded demo tenants:
+One proof per requirement. Every block is real output against the running stack (`docker compose up`), using the
+seeded demo tenants. Captured on **2026-10-12**, except the full test suite and sections 4 and 7, re-captured on **2026-10-13**
+on a fresh database (after the schema moved to `migrations/`), so event ids there restart at 1:
 
 | Tenant | id | API key (demo only) |
 |--------|----|---------------------|
@@ -31,53 +32,62 @@ Status: ✅ proven.
 
 ```
 $ uv run pytest -v
-tests/test_checkout.py::test_first_checkout_creates_and_stores_subscription_for_key_tenant PASSED
-tests/test_checkout.py::test_repeat_checkout_reuses_unpaid_subscription PASSED
-tests/test_checkout.py::test_checkout_refused_while_mandate_authenticated PASSED
-tests/test_checkout.py::test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout PASSED
-tests/test_checkout.py::test_razorpay_failure_stores_nothing PASSED
-tests/test_checkout.py::test_later_activation_webhook_still_upgrades PASSED
-tests/test_checkout.py::test_checkout_refuses_tenant_already_on_pro PASSED
-tests/test_checkout.py::test_reuse_asks_razorpay_first PASSED
-tests/test_checkout.py::test_missed_webhook_paid_subscription_blocks_a_second_one PASSED
-tests/test_checkout.py::test_dead_subscription_at_razorpay_starts_a_fresh_one PASSED
-tests/test_checkout.py::test_cancelling_after_a_stuck_authenticated_row_returns_tenant_to_free PASSED
-tests/test_checkout.py::test_razorpay_calls_have_a_timeout PASSED
-tests/test_checkout.py::test_simultaneous_checkouts_create_one_subscription PASSED
-tests/test_metering.py::test_same_request_twice_creates_one_event PASSED
-tests/test_metering.py::test_concurrent_retries_of_one_request_create_one_event PASSED
-tests/test_metering.py::test_replay_returns_original_even_when_tenant_is_now_blocked PASSED
-tests/test_metering.py::test_call_quota_boundary_returns_429 PASSED
-tests/test_metering.py::test_token_quota_rejects_a_request_that_would_cross_the_limit PASSED
-tests/test_metering.py::test_concurrent_requests_cannot_overshoot_quota PASSED
-tests/test_metering.py::test_past_due_tenant_gets_402 PASSED
-tests/test_metering.py::test_pro_plan_has_higher_limits PASSED
-tests/test_metering.py::test_other_tenants_usage_does_not_count_against_you PASSED
-tests/test_metering.py::test_same_idempotency_key_in_two_tenants_is_two_events PASSED
-tests/test_metering.py::test_missing_or_bad_api_key_is_401 PASSED
-tests/test_metering.py::test_missing_idempotency_key_is_400 PASSED
-tests/test_metering.py::test_impossible_token_counts_are_422 PASSED
-tests/test_metering.py::test_cost_uses_category_rates_not_a_token_sum PASSED
-tests/test_usage.py::test_empty_month_shows_zero_usage_and_plan_limits PASSED
-tests/test_usage.py::test_rollup_cost_matches_pinned_pricing_constants PASSED
-tests/test_usage.py::test_last_months_usage_is_not_counted PASSED
-tests/test_usage.py::test_tenant_sees_only_its_own_usage PASSED
-tests/test_usage.py::test_usage_requires_api_key PASSED
-tests/test_webhooks.py::test_activated_flips_tenant_free_to_pro PASSED
-tests/test_webhooks.py::test_forged_signature_is_rejected_and_changes_nothing PASSED
-tests/test_webhooks.py::test_non_ascii_signature_is_rejected_not_crashed PASSED
-tests/test_webhooks.py::test_missing_signature_is_rejected PASSED
-tests/test_webhooks.py::test_replayed_event_is_ignored PASSED
-tests/test_webhooks.py::test_out_of_order_older_event_does_not_win PASSED
-tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED
-tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED
-tests/test_webhooks.py::test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant PASSED
-tests/test_webhooks.py::test_same_second_authenticated_last_still_protects_paying_tenant PASSED
-tests/test_webhooks.py::test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation PASSED
-tests/test_webhooks.py::test_failed_apply_does_not_mark_event_seen PASSED
-tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED
-tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED
-============================== 46 passed in 1.89s ==============================
+tests/test_checkout.py::test_first_checkout_creates_and_stores_subscription_for_key_tenant PASSED [  1%]
+tests/test_checkout.py::test_repeat_checkout_reuses_unpaid_subscription PASSED [  3%]
+tests/test_checkout.py::test_checkout_refused_while_mandate_authenticated PASSED [  5%]
+tests/test_checkout.py::test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout PASSED [  7%]
+tests/test_checkout.py::test_razorpay_failure_stores_nothing PASSED      [  9%]
+tests/test_checkout.py::test_later_activation_webhook_still_upgrades PASSED [ 10%]
+tests/test_checkout.py::test_checkout_refuses_tenant_already_on_pro PASSED [ 12%]
+tests/test_checkout.py::test_reuse_asks_razorpay_first PASSED            [ 14%]
+tests/test_checkout.py::test_missed_webhook_paid_subscription_blocks_a_second_one PASSED [ 16%]
+tests/test_checkout.py::test_dead_subscription_at_razorpay_starts_a_fresh_one PASSED [ 18%]
+tests/test_checkout.py::test_cancelling_after_a_stuck_authenticated_row_returns_tenant_to_free PASSED [ 20%]
+tests/test_checkout.py::test_razorpay_calls_have_a_timeout PASSED        [ 21%]
+tests/test_checkout.py::test_simultaneous_checkouts_create_one_subscription PASSED [ 23%]
+tests/test_metering.py::test_same_request_twice_creates_one_event PASSED [ 25%]
+tests/test_metering.py::test_concurrent_retries_of_one_request_create_one_event PASSED [ 27%]
+tests/test_metering.py::test_replay_returns_original_even_when_tenant_is_now_blocked PASSED [ 29%]
+tests/test_metering.py::test_call_quota_boundary_returns_429 PASSED      [ 30%]
+tests/test_metering.py::test_token_quota_rejects_a_request_that_would_cross_the_limit PASSED [ 32%]
+tests/test_metering.py::test_concurrent_requests_cannot_overshoot_quota PASSED [ 34%]
+tests/test_metering.py::test_past_due_tenant_gets_402 PASSED             [ 36%]
+tests/test_metering.py::test_pro_plan_has_higher_limits PASSED           [ 38%]
+tests/test_metering.py::test_other_tenants_usage_does_not_count_against_you PASSED [ 40%]
+tests/test_metering.py::test_same_idempotency_key_in_two_tenants_is_two_events PASSED [ 41%]
+tests/test_metering.py::test_missing_or_bad_api_key_is_401 PASSED        [ 43%]
+tests/test_metering.py::test_missing_idempotency_key_is_400 PASSED       [ 45%]
+tests/test_metering.py::test_impossible_token_counts_are_422 PASSED      [ 47%]
+tests/test_metering.py::test_cost_uses_category_rates_not_a_token_sum PASSED [ 49%]
+tests/test_usage.py::test_empty_month_shows_zero_usage_and_plan_limits PASSED [ 50%]
+tests/test_usage.py::test_rollup_cost_matches_pinned_pricing_constants PASSED [ 52%]
+tests/test_usage.py::test_last_months_usage_is_not_counted PASSED        [ 54%]
+tests/test_usage.py::test_tenant_sees_only_its_own_usage PASSED          [ 56%]
+tests/test_usage.py::test_usage_requires_api_key PASSED                  [ 58%]
+tests/test_webhooks.py::test_activated_flips_tenant_free_to_pro PASSED   [ 60%]
+tests/test_webhooks.py::test_forged_signature_is_rejected_and_changes_nothing PASSED [ 61%]
+tests/test_webhooks.py::test_non_ascii_signature_is_rejected_not_crashed PASSED [ 63%]
+tests/test_webhooks.py::test_missing_signature_is_rejected PASSED        [ 65%]
+tests/test_webhooks.py::test_replayed_event_is_ignored PASSED            [ 67%]
+tests/test_webhooks.py::test_out_of_order_older_event_does_not_win PASSED [ 69%]
+tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED [ 70%]
+tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED     [ 72%]
+tests/test_webhooks.py::test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant PASSED [ 74%]
+tests/test_webhooks.py::test_same_second_authenticated_last_still_protects_paying_tenant PASSED [ 76%]
+tests/test_webhooks.py::test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation PASSED [ 78%]
+tests/test_webhooks.py::test_failed_apply_does_not_mark_event_seen PASSED [ 80%]
+tests/test_webhooks.py::test_event_for_unknown_tenant_is_acknowledged_not_crashed[00000000-0000-7000-8000-0000000000ff] PASSED [ 81%]
+tests/test_webhooks.py::test_event_for_unknown_tenant_is_acknowledged_not_crashed[not-a-uuid] PASSED [ 83%]
+tests/test_webhooks.py::test_event_for_unknown_tenant_is_acknowledged_not_crashed[42] PASSED [ 85%]
+tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[not json] PASSED [ 87%]
+tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[[]] PASSED [ 89%]
+tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"event": "subscription.activated", "created_at": 1000, "payload": {}}] PASSED [ 90%]
+tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"event": "subscription.activated", "created_at": 1000, "payload": {"subscription": {"entity": {"id": "s"}}}}] PASSED [ 92%]
+tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"event": "payment.captured", "created_at": 99999999999999, "payload": {}}] PASSED [ 94%]
+tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"created_at": 1000, "payload": {}}] PASSED [ 96%]
+tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED [ 98%]
+tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED [100%]
+============================== 55 passed in 2.00s ==============================
 ```
 Tests run against a separate `billing_test` database, rebuilt from `migrations/` on every run.
 
@@ -184,7 +194,7 @@ The full path from a webhook to a 402 is covered by `test_halted_subscription_bl
 ## 4. Cost: monthly rollup per tenant ✅
 
 **Stage 4 gate: `/usage` numbers match the pinned pricing constants.** Tenant B (Free) sends two calls and one replay.
-Before this, Tenant B's `usage_events` were deleted again and its status reset to `active` after section 3, hence the empty month.
+Fresh database, so Tenant B starts with an empty month.
 The expected total was worked out by hand *before* reading `/usage` (rates per 1M tokens):
 
 | Event | input | cached | output (reasoning) | Cost from the pinned rates |
@@ -195,25 +205,21 @@ The expected total was worked out by hand *before* reading `/usage` (rates per 1
 | **Expected** | **30,000** | **19,000** | **8,000 (3,000)** | **$0.1039**, 2 calls |
 
 ```
-$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-b'        # before: empty month
-{"plan": "free", "status": "active", "period": {"start": "2026-10-01", "resets_on": "2026-11-01"},
- "calls": {"used": 0, "limit": 1000},
- "tokens": {"used": 0, "limit": 100000, "input": 0, "cached_input": 0, "output": 0, "reasoning": 0},
- "cost_usd": "0"}
+$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-b'; echo        # before: empty month
+{"plan":"free","status":"active","period":{"start":"2026-10-01","resets_on":"2026-11-01"},"calls":{"used":0,"limit":1000},"tokens":{"used":0,"limit":100000,"input":0,"cached_input":0,"output":0,"reasoning":0},"cost_usd":"0"}
 
 $ curl -s -X POST localhost:8000/generate -H 'X-API-Key: demo-key-tenant-b' -H 'Idempotency-Key: usage-e1' \
-    -H 'Content-Type: application/json' -d '{"input_tokens":10000,"cached_input_tokens":4000,"output_tokens":5000,"reasoning_tokens":2000}'
-{"event_id":16069,"cost_usd":"0.0624000000","replayed":false}
-$ curl ... -H 'Idempotency-Key: usage-e2' -d '{"input_tokens":20000,"cached_input_tokens":15000,"output_tokens":3000,"reasoning_tokens":1000}'
-{"event_id":16070,"cost_usd":"0.0415000000","replayed":false}
-$ curl ... -H 'Idempotency-Key: usage-e1' (same body as e1)
-{"event_id":16069,"cost_usd":"0.0624000000","replayed":true}
+    -H 'Content-Type: application/json' -d '{"input_tokens":10000,"cached_input_tokens":4000,"output_tokens":5000,"reasoning_tokens":2000}'; echo
+{"event_id":1,"cost_usd":"0.0624000000","replayed":false}
+$ curl -s -X POST localhost:8000/generate -H 'X-API-Key: demo-key-tenant-b' -H 'Idempotency-Key: usage-e2' \
+    -H 'Content-Type: application/json' -d '{"input_tokens":20000,"cached_input_tokens":15000,"output_tokens":3000,"reasoning_tokens":1000}'; echo
+{"event_id":2,"cost_usd":"0.0415000000","replayed":false}
+$ curl -s -X POST localhost:8000/generate -H 'X-API-Key: demo-key-tenant-b' -H 'Idempotency-Key: usage-e1' \
+    -H 'Content-Type: application/json' -d '{"input_tokens":10000,"cached_input_tokens":4000,"output_tokens":5000,"reasoning_tokens":2000}'; echo   # replay of e1
+{"event_id":1,"cost_usd":"0.0624000000","replayed":true}
 
-$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-b'        # after
-{"plan": "free", "status": "active", "period": {"start": "2026-10-01", "resets_on": "2026-11-01"},
- "calls": {"used": 2, "limit": 1000},
- "tokens": {"used": 38000, "limit": 100000, "input": 30000, "cached_input": 19000, "output": 8000, "reasoning": 3000},
- "cost_usd": "0.1039000000"}
+$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-b'; echo        # after
+{"plan":"free","status":"active","period":{"start":"2026-10-01","resets_on":"2026-11-01"},"calls":{"used":2,"limit":1000},"tokens":{"used":38000,"limit":100000,"input":30000,"cached_input":19000,"output":8000,"reasoning":3000},"cost_usd":"0.1039000000"}
 
 $ uv run python -c 'from app.pricing import cost_usd; print(cost_usd(30_000, 19_000, 8_000))'
 0.1039
@@ -221,11 +227,11 @@ $ uv run python -c 'from app.pricing import cost_usd; print(cost_usd(30_000, 19_
 `/usage` matches the hand calculation and the pinned constants exactly. The replay was not counted, and
 `tokens.used` = input + output = 38,000.
 
-Tenant A (on Pro through its real Razorpay subscription) shows the Pro limits, and B's usage doesn't leak into A's:
+Tenant A (on Pro through its real Razorpay test-mode subscription `sub_TnQWdwDwIA9Rwv`, paid 2026-10-13) shows the
+Pro limits, and B's usage doesn't leak into A's:
 ```
-$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-a'
-{"plan": "pro", "status": "active", ..., "calls": {"used": 0, "limit": 50000},
- "tokens": {"used": 0, "limit": 10000000, ...}, "cost_usd": "0"}
+$ curl -s localhost:8000/usage -H 'X-API-Key: demo-key-tenant-a'; echo
+{"plan":"pro","status":"active","period":{"start":"2026-10-01","resets_on":"2026-11-01"},"calls":{"used":0,"limit":50000},"tokens":{"used":0,"limit":10000000,"input":0,"cached_input":0,"output":0,"reasoning":0},"cost_usd":"0"}
 ```
 
 Automated: `test_rollup_cost_matches_pinned_pricing_constants` (the gate, $0.0834 case),
@@ -272,35 +278,49 @@ Why the rules matter, on the same request:
 
 ## 7. Payments: checkout end-to-end in Razorpay test mode ✅
 
-Real flow on 2026-10-12. All old subscriptions were cancelled in the Razorpay dashboard, then Tenant A
-went through `http://localhost:8000/checkout` → Razorpay Checkout (test card, mock bank "Success") →
-webhooks via ngrok → `POST /webhooks/razorpay`.
-```
-$ docker compose exec -T db psql -U billing -c "SELECT received_at::time(0) AS received, event_type, event_id FROM webhook_events WHERE received_at >= '2026-10-12 16:27+00' ORDER BY received_at"
- received |         event_type         |    event_id
-----------+----------------------------+----------------
- 16:27:37 | subscription.cancelled     | Tn3wOvtnZxfN43     <- old subscriptions cancelled in the dashboard
- 16:27:44 | subscription.cancelled     | Tn3wW8UxpLCyWj
- 16:28:00 | subscription.cancelled     | Tn3wnmEoDRyxwb
- 16:29:17 | payment.authorized         | Tn3y9anmNacGz7     <- Tenant A pays
- 16:29:19 | payment.captured           | Tn3yBngKg7gwLQ
- 16:29:23 | subscription.activated     | Tn3yGgP3fDWgQg     <- flips Tenant A to Pro
- 16:29:23 | subscription.authenticated | Tn3yGl11aoEEvJ
- 16:29:23 | subscription.charged       | Tn3yGoxLiWxTxg
+Real flow on 2026-10-13, on the fresh database from section 4 (migrations applied, then seeded: both tenants on Free).
+Tenant A went through `http://localhost:8000/checkout` → Razorpay Checkout (test card, mock bank "Success") →
+webhooks via ngrok → `POST /webhooks/razorpay`. Output below is pasted as printed.
 
-$ docker compose exec -T db psql -U billing -c "SELECT id, tenant_id, status FROM subscriptions WHERE status = 'active'"
-         id         |              tenant_id               | status
---------------------+--------------------------------------+--------
- sub_Tn3xdSmNYF8bJo | 00000000-0000-7000-8000-00000000000a | active
+```
+$ docker compose exec -T db psql -U billing -c "SELECT received_at::time(0) AS received, event_type, event_id FROM webhook_events ORDER BY received_at, event_id"
+ received |         event_type         |    event_id    
+----------+----------------------------+----------------
+ 14:34:08 | payment.authorized         | TnQXdSkPbJZhCH
+ 14:34:09 | payment.captured           | TnQXfQ415pUgva
+ 14:34:17 | subscription.charged       | TnQXnFXLn5y0qG
+ 14:34:17 | subscription.authenticated | TnQXnHhANLQX83
+ 14:34:17 | subscription.activated     | TnQXnHpEaLRowQ
+(5 rows)
+
+$ docker compose exec -T db psql -U billing -c "SELECT id, tenant_id, status, updated_at FROM subscriptions"
+         id         |              tenant_id               | status |       updated_at       
+--------------------+--------------------------------------+--------+------------------------
+ sub_TnQWdwDwIA9Rwv | 00000000-0000-7000-8000-00000000000a | active | 2026-10-13 14:34:16+00
+(1 row)
 
 $ docker compose exec -T db psql -U billing -c "SELECT name, plan_id, status FROM tenants ORDER BY name"
-   name   | plan_id | status
+   name   | plan_id | status 
 ----------+---------+--------
- Tenant A | pro     | active      <- was free/active before checkout
+ Tenant A | pro     | active
  Tenant B | free    | active
+(2 rows)
+
+$ docker compose exec -T api .venv/bin/python -c "import razorpay; from app.config import settings as s; c = razorpay.Client(auth=(s.razorpay_key_id, s.razorpay_key_secret.get_secret_value())); sub = c.subscription.fetch('sub_TnQWdwDwIA9Rwv'); plan = c.plan.fetch(sub['plan_id']); print(sub['id'], sub['status'], 'paid_count=%s' % sub['paid_count'], sub['notes']); print(plan['id'], plan['period'], plan['item']['amount'], plan['item']['currency'])"
+sub_TnQWdwDwIA9Rwv active paid_count=1 {'tenant_id': '00000000-0000-7000-8000-00000000000a'}
+plan_Tn27na0B04mkYA monthly 249900 INR
 ```
-Razorpay's API, queried at the same time, listed `sub_Tn3xdSmNYF8bJo active {'tenant_id': '…000a'}`: the mirror matches.
-Earlier the same day, Tenant B completed the same flow (Free → Pro) and was moved back to Free by its `subscription.cancelled`.
+How to read it:
+- **Webhooks:** the only five ever received by this database. Tenant A pays (`payment.*`, 14:34:08–09), then
+  `subscription.activated` flips it to Pro (14:34:17).
+- **Free before:** no "before" query was pasted. Tenant A was seeded on Free (the column default), and nothing but these
+  five events has touched this database. So the move to `pro` above is the checkout's doing.
+- **Our row matches Razorpay:** `sub_TnQWdwDwIA9Rwv` is `active` in our `subscriptions` mirror and at Razorpay
+  (`paid_count=1`). Its `notes.tenant_id` is Tenant A, set server-side by `POST /checkout`.
+- **Plan:** monthly, `249900` paise = ₹2,499. The Razorpay calls ran inside the API container with its own settings,
+  so no key was printed.
+
+Then `GET /usage` for Tenant A shows the Pro limits (50,000 calls, 10M tokens): see the end of section 4.
 
 ## 8. Payments: signature verification, dedup, plan/status sync ✅
 
