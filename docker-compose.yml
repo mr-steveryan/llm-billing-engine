@@ -9,10 +9,10 @@ services:
       - "127.0.0.1:5432:5432"  # localhost only: the DB password is public in this repo
     volumes:
       - pgdata:/var/lib/postgresql
-      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      # Not in docker-entrypoint-initdb.d: the API applies migrations at startup, and seeding is the separate Seed step.
+      - ./seed.sql:/seed/seed.sql:ro
     healthcheck:
-      # TCP, not the socket: the init-time temp server (running schema/seed) listens only on the socket
+      # TCP, not the socket: the init-time temp server on first start listens only on the socket
       test: ["CMD-SHELL", "pg_isready -h localhost -U billing -d billing"]
       interval: 2s
       retries: 15

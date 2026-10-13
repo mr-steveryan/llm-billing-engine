@@ -79,7 +79,7 @@ tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_noth
 tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED
 ============================== 46 passed in 1.89s ==============================
 ```
-Tests run against a separate `billing_test` database, rebuilt from `schema.sql` on every run.
+Tests run against a separate `billing_test` database, rebuilt from `migrations/` on every run.
 
 **The tests catch real bugs.** Each protection was removed on purpose, and its test failed:
 
@@ -355,7 +355,7 @@ Isolation: the tenant comes only from the API key (stored as a SHA-256 hash), ne
 - `test_other_tenants_usage_does_not_count_against_you`: Tenant B at its limit does not affect Tenant A.
 - `test_same_idempotency_key_in_two_tenants_is_two_events`: idempotency keys are scoped per tenant.
 
-Schema decisions and data-type reasons: [DESIGN.md](DESIGN.md), [schema.sql](schema.sql).
+Schema decisions and data-type reasons: [DESIGN.md](DESIGN.md), [migrations/](migrations/).
 
 ## 10. README, architecture diagram, setup ✅
 

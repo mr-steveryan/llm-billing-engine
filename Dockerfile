@@ -10,6 +10,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 FROM python:3.12-slim
 WORKDIR /app
 COPY --from=build /app/.venv .venv
-# Only the engine: docs, tests, scripts and the SQL files (mounted into the db container) are never read here.
+# Only the engine and its migrations: docs, tests, scripts and seed.sql (mounted into the db container) are never read here.
 COPY app ./app
-CMD [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+COPY migrations ./migrations
+# Migrate first; if a migration fails the container exits, so `up --wait` fails loudly instead of serving an old schema.
+CMD ["sh", "-c", ".venv/bin/python -m app.migrate && exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]

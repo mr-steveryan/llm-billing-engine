@@ -22,6 +22,12 @@ The brief is written for Stripe. Payments here use **Razorpay** (test mode), so 
 | "Store usage event, then quota check" (diagram order) | Quota check **first**, then store | Storing first would record and count rejected requests |
 | `GET /usage → { used, limit, cost }` | Same, split into `calls` and `tokens`, plus per-category token totals | Totals let anyone recompute `cost_usd` from the pinned rates |
 
+## Layers
+
+HTTP (`app/main.py`: input checks, status codes) → logic (`app/meter.py`, `app/billing.py`, `app/pricing.py`:
+the rules, each module owning its own SQL) → data (Postgres through `app/db.py`, schema in `migrations/`, applied by
+`app/migrate.py`). No separate repository layer: at this size it would add files, not correctness.
+
 ## Plans
 
 | Plan | API calls / month | Tokens / month | Price |
@@ -32,7 +38,7 @@ The brief is written for Stripe. Payments here use **Razorpay** (test mode), so 
 Month = calendar month in **UTC**, resetting at 00:00 UTC on the 1st. Token quota counts `input_tokens + output_tokens`
 (cached and reasoning tokens are already inside those, so adding them would double-count).
 
-## Data model (`schema.sql`)
+## Data model (`migrations/`)
 
 | Table | Purpose | Key decisions |
 |-------|---------|---------------|
@@ -160,4 +166,4 @@ event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows on
 - **Replay body not compared.** Same `Idempotency-Key` with a different body returns the original result.
 - **Pricing tiers.** No cache-write or long-context (>272K) rates; usage events don't carry that information.
 
-Out of scope: invoices, proration, overage billing, dashboard, admin API, migrations tool.
+Out of scope: invoices, proration, overage billing, dashboard, admin API.

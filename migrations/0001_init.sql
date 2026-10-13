@@ -1,4 +1,4 @@
--- Runs once, on an empty database (docker-entrypoint-initdb.d). Schema change => `docker compose down -v`.
+-- Migration 0001: the initial schema. Applied once by app/migrate.py; never edit an applied migration, add a new file.
 
 -- Plans are reference data the engine needs to run, so they live here, not in seed data.
 -- Text PK: a plan is a stable name ('free'), readable in every row that points at it.

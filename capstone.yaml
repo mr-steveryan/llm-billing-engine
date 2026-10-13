@@ -1,6 +1,6 @@
 # Manifest for the capstone evaluator. Needs Docker; `test` also needs uv.
 run: "[ -f .env ] || cp .env.example .env; docker compose up -d --build --wait"
-seed: "docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/02-seed.sql"
+seed: "docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -f /seed/seed.sql"
 test: "uv run pytest"
 base_url: "http://localhost:8000"
 

@@ -116,14 +116,14 @@ no step needs a credit card. For real test-mode payments you also need a Razorpa
 [ -f .env ] || cp .env.example .env; docker compose up -d --build --wait
 ```
 It creates `.env` from the placeholders if you don't have one, builds the image, and returns once Postgres is healthy and
-the API is up. The database schema is created from `schema.sql` on first start.
+the API is up. On every start the API first applies any new migrations from `migrations/` (each exactly once).
 
 **Stop** (keeps your data): `docker compose down`. Start again with the Run command.
-`docker compose down -v` also deletes the database; only use it after `schema.sql` changes.
+`docker compose down -v` also deletes the database; schema changes don't need it (they are migrations).
 
 **Seed** demo data (two tenants, both on Free). Safe to run any number of times; existing tenants are left as they are:
 ```
-docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/02-seed.sql
+docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -f /seed/seed.sql
 ```
 Demo API keys: `demo-key-tenant-a`, `demo-key-tenant-b`. Check: `curl localhost:8000/health` → `{"status":"ok"}`.
 
@@ -138,7 +138,7 @@ Demo API keys: `demo-key-tenant-a`, `demo-key-tenant-b`. Check: `curl localhost:
 | Apply `.env` changes | `docker compose up -d --force-recreate api` | kept |
 | See what is running and healthy | `docker compose ps` | kept |
 | Follow the API's logs | `docker compose logs -f api` | kept |
-| Wipe and start over (after `schema.sql` changes) | `docker compose down -v`, then Run and Seed | **deleted** |
+| Wipe and start over | `docker compose down -v`, then Run and Seed | **deleted** |
 
 **Test** (on the host; the runtime image has no test tools):
 ```
@@ -159,8 +159,8 @@ Checkout and real webhooks need real Razorpay **test-mode** values:
 | `DATABASE_URL` | only used when running the API outside Docker; compose sets its own |
 
 The app refuses to start if a key is missing, empty or misspelled, and `.env` must contain only these keys.
-After `.env` changes: `docker compose up -d --force-recreate api`. After `schema.sql` changes:
-`docker compose down -v` (this **wipes** the database), then run and seed again.
+After `.env` changes: `docker compose up -d --force-recreate api`. Schema changes: add a new
+`migrations/NNNN_name.sql` (never edit an applied one), then `docker compose up -d --build --wait`; data is kept.
 
 **Webhooks (only for real payments).** Razorpay must reach your laptop:
 ```
@@ -210,8 +210,9 @@ app/pricing.py     pinned token prices + cost formula
 app/billing.py     Razorpay checkout + webhook: signature, dedup, plan sync
 app/config.py      settings from .env (pydantic-settings)
 app/db.py          Postgres connection
+app/migrate.py     applies new migrations once, at API startup
 app/checkout.html  Razorpay checkout page
-schema.sql         tables, constraints, plan limits
+migrations/        schema as numbered SQL files: tables, constraints, plan limits, indexes
 seed.sql           demo tenants (dev only), safe to re-run
 scripts/replay_webhook.py
 tests/             pytest against real Postgres

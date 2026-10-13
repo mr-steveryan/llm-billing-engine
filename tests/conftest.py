@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import connect  # noqa: E402
 from app.main import app  # noqa: E402
+from app.migrate import migrate  # noqa: E402
 
 TENANT_A = "00000000-0000-7000-8000-00000000000a"
 TENANT_B = "00000000-0000-7000-8000-00000000000b"
@@ -30,13 +31,13 @@ KEY_B = "demo-key-tenant-b"
 
 @pytest.fixture(scope="session", autouse=True)
 def test_database():
-    # Rebuilt from schema.sql + seed.sql every run, so it always matches the current schema.
+    # Rebuilt every run by the same migration runner the API uses, then seeded, so it always matches the current schema.
     root = Path(__file__).parent.parent
     with psycopg.connect(DEV_URL, autocommit=True) as admin:  # CREATE DATABASE can't run in a transaction
         admin.execute("DROP DATABASE IF EXISTS billing_test WITH (FORCE)")
         admin.execute("CREATE DATABASE billing_test")
+    migrate(TEST_URL)
     with psycopg.connect(TEST_URL) as conn:
-        conn.execute((root / "schema.sql").read_text())
         conn.execute((root / "seed.sql").read_text())
 
 
