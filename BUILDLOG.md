@@ -294,7 +294,7 @@ uncommitted overage experiment (added by hand-run SQL, since `schema.sql` only r
     packages), none of which the app uses. Requests are served by the pure-Python defaults instead.
 - 46 tests pass; all `capstone.yaml` endpoint probes return their expected status on the rebuilt stack.
 
-## 2026-10-13: README stop command and stack command table
+## 2026-10-13: README stop command and stack command table. Commit `e423a6d`
 
 The README showed how to start the stack but not how to stop it; the only shutdown it named was
 `docker compose down -v`, which deletes the database. Added a **Stop** block (`docker compose down`, keeps data) after
