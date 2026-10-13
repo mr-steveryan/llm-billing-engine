@@ -276,7 +276,7 @@ Ran `/ponytail-audit` again. It reported 1 finding, caused by the previous fix (
   the new subscription. The tenant's plan still changes only through webhooks.
 - 46 tests pass (1 new, 1 extended). Both fail without the fix.
 
-## 2026-10-13: Clean rebuild and slimmer API image
+## 2026-10-13: Clean rebuild and slimmer API image. Commit `8ee701e`
 
 A final audit found the running dev database did not match `schema.sql`: it had four `overage_*` columns from an
 uncommitted overage experiment (added by hand-run SQL, since `schema.sql` only runs on an empty volume), and orphan
