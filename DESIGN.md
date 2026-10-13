@@ -135,11 +135,14 @@ event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows on
 |---------------------|----------------------|
 | `active` | pro / active |
 | `halted` (all payment retries failed) | pro / past_due → 402 |
-| `cancelled`, `completed`, `expired` | free / active, unless another of the tenant's subscriptions is `active`/`halted` |
+| `cancelled`, `completed`, `expired` | free / active, unless another of the tenant's subscriptions is `active`/`halted`/`authenticated` |
 | `created`, `authenticated`, `pending`, `paused` | mirrored in `subscriptions`; tenant unchanged (`pending` = still retrying, keep access) |
 
 - **Out-of-order delivery:** `subscriptions.updated_at` holds the Razorpay `created_at` of the last applied event.
   An older event is skipped (200 `"ignored: older than last applied event"`), so a late `activated` can't undo a `cancelled`.
+  Timestamps are whole seconds and a tie is applied. In real runs `activated`, `authenticated` and `charged` arrive in the
+  same second in any order, so a paid subscription's row can read `authenticated` until its next charge; that is why
+  the downgrade check above counts `authenticated` as live.
 - **Checkout:** `POST /checkout` locks the tenant row, then: 409 if the tenant is already Pro. If a `created` or
   `authenticated` subscription exists, the newest one's **real status is fetched from Razorpay** first, because our
   row is only a mirror and is stale if a webhook was missed:

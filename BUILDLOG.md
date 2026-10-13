@@ -243,3 +243,24 @@ Ran `/ponytail-review` on the third audit's fix (`c3f70d9`). It reported 1 findi
   the test stayed green. The test now records the cancel's result and asserts it was `applied`. Checked by making the
   cancel raise on purpose: the test now fails (`assert [] == ['applied']`).
 - 44 tests pass.
+
+## 2026-10-13: Live-behaviour, fresh-start and load checks
+
+Checked the three items the audits had left as "not checked":
+- **Razorpay behaviour (docs + our real webhook log).** Razorpay waits 5 s for a reply, retries with backoff for
+  24 hours, then disables the webhook; delivery is at-least-once and not guaranteed in order. Our three real
+  checkouts each delivered `activated`, `authenticated` and `charged` within ~100 ms, in a different order each time;
+  at 16:07:17 `authenticated` came last. Its payload carries status `authenticated` (Razorpay's sample payload), and
+  the order guard applies same-second ties, so a paid subscription's row could read `authenticated`. The downgrade
+  check only counted `active`/`halted`, so an old subscription's late cancel could still move a paying tenant to Free.
+  Reproduced with the real order, then fixed by counting `authenticated` as live (safe: `/checkout` never creates a
+  new subscription while another is `authenticated` or live). Not verified: each event's own `created_at`; we don't
+  store it, and the ~100 ms arrival gap makes the same second very likely, not certain.
+- **Fresh start** (separate compose project on an empty volume, `capstone.yaml` steps verbatim): healthy in ~8 s,
+  schema and seed loaded, re-seed is a no-op, all 6 endpoint probes and the idempotent replay as expected, 44 tests
+  passed against it.
+- **Load** (Pro tenant with 49,000 events this month): the monthly sum takes ~9.5 ms; one tenant tops out at ~83
+  `/generate` per second because its requests take turns on the tenant lock (p50 120 ms at 10 clients, 603 ms at 50),
+  with no errors. A tenant with no history reached 415/s. Pro's 50k calls/month averages 0.02/s, so this is far
+  above the expected load; a running monthly total would be the change if that ever stops being true.
+- 45 tests pass (1 new). The new test fails without the fix.

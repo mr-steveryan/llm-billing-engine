@@ -71,10 +71,12 @@ def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -
         plan_id, status = TENANT_STATE[sub["status"]]
         # A downgrade must not undo another live subscription of the tenant: /checkout starts a new one when the old one
         # died at Razorpay, and the old one's 'cancelled' webhook can arrive (retried) after the new one is paid.
+        # 'authenticated' counts as live: it arrives in the same second as 'activated'/'charged', sometimes last,
+        # so a paid subscription's row can read 'authenticated' until its next charge.
         conn.execute(
             """UPDATE tenants SET plan_id = %s, status = %s WHERE id = %s
                AND (%s = 'pro' OR NOT EXISTS (SELECT 1 FROM subscriptions
-                    WHERE tenant_id = %s AND id <> %s AND status IN ('active', 'halted')))""",
+                    WHERE tenant_id = %s AND id <> %s AND status IN ('active', 'halted', 'authenticated')))""",
             (plan_id, status, tenant_id, plan_id, tenant_id, sub["id"]),
         )
     return "applied"

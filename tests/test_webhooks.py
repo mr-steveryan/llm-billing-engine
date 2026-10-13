@@ -15,7 +15,8 @@ SECRET = b"test-webhook-secret"
 
 
 # Razorpay event name -> the subscription status that event carries (they differ: activated -> active).
-STATUS = {"activated": "active", "halted": "halted", "cancelled": "cancelled"}
+STATUS = {"activated": "active", "charged": "active", "authenticated": "authenticated",
+          "halted": "halted", "cancelled": "cancelled"}
 
 
 def send(client, event_id, event, created_at=1_000, sub_id="sub_TEST00000000001", signature=None):
@@ -96,6 +97,15 @@ def test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant(client):
     send(client, "evt_b_act", "activated", created_at=2_000, sub_id="sub_B")
     r = send(client, "evt_a_cancel", "cancelled", created_at=1_500, sub_id="sub_A")
     assert r.json()["status"] == "applied"
+    assert tenant_a() == {"plan_id": "pro", "status": "active"}
+
+
+def test_same_second_authenticated_last_still_protects_paying_tenant(client):
+    # Real arrival order seen at 16:07:17 on 2026-10-12: all three in one second, 'authenticated' last,
+    # so sub_B's row ends 'authenticated' although it is paid. An old subscription's late cancel must not downgrade.
+    for event_id, event in [("evt_b_chg", "charged"), ("evt_b_act", "activated"), ("evt_b_auth", "authenticated")]:
+        send(client, event_id, event, created_at=2_000, sub_id="sub_B")
+    send(client, "evt_a_cancel", "cancelled", created_at=1_500, sub_id="sub_A")
     assert tenant_a() == {"plan_id": "pro", "status": "active"}
 
 
