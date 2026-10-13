@@ -185,7 +185,7 @@ below, ran the real Razorpay checkouts, and reviewed each stage before committin
 - Secret scan of the whole git history: no `.env` ever committed, no real-looking Razorpay keys, no secret values
   in `.env.example`.
 
-## 2026-10-13: Ponytail audit fixes. (not committed yet)
+## 2026-10-13: Ponytail audit fixes. Commit `988f5ac`
 
 Ran `/ponytail-audit` on the committed repo. It reported 4 findings, all fixed:
 - **Database open to the network.** Compose published Postgres on all interfaces (`0.0.0.0:5432`), with the password
