@@ -1,10 +1,13 @@
 import hashlib
 import hmac
 import json
+import threading
+import time
 
 import psycopg
 import pytest
 
+from app import billing
 from app.db import connect
 from tests.conftest import TENANT_A, generate
 
@@ -93,6 +96,26 @@ def test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant(client):
     send(client, "evt_b_act", "activated", created_at=2_000, sub_id="sub_B")
     r = send(client, "evt_a_cancel", "cancelled", created_at=1_500, sub_id="sub_A")
     assert r.json()["status"] == "applied"
+    assert tenant_a() == {"plan_id": "pro", "status": "active"}
+
+
+def test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation():
+    # sub_B's activation is applied but not committed when sub_A's cancel arrives; without the tenant lock,
+    # the cancel's live-subscription check misses sub_B and overwrites Pro with Free once sub_B commits.
+    def event(name, sub_id, status, created_at):
+        return {"event": f"subscription.{name}", "created_at": created_at,
+                "payload": {"subscription": {"entity": {"id": sub_id, "status": status, "notes": {"tenant_id": TENANT_A}}}}}
+
+    def cancel_old():
+        with connect() as conn:
+            billing.apply_event(conn, "evt_a_cancel", event("cancelled", "sub_A", "cancelled", 1_500))
+
+    with connect() as conn:
+        billing.apply_event(conn, "evt_b_act", event("activated", "sub_B", "active", 2_000))
+        other = threading.Thread(target=cancel_old)
+        other.start()
+        time.sleep(0.5)  # let the cancel reach the database while sub_B is uncommitted
+    other.join()  # sub_B committed when the with-block closed
     assert tenant_a() == {"plan_id": "pro", "status": "active"}
 
 

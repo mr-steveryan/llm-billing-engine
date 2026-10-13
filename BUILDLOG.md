@@ -224,3 +224,13 @@ Ran `/ponytail-audit` again on the committed repo. It reported 3 findings, all f
   and `webhook_events` stays empty, so Razorpay's retry is not treated as a duplicate.
 - 43 tests pass (3 new). The first two new tests fail against the old code. The third guards behaviour that already
   worked, so it passes on both.
+
+## 2026-10-13: Third Ponytail audit fix
+
+Ran `/ponytail-audit` a third time. It reported 1 finding, in the previous round's downgrade fix:
+- **Two webhooks at the same moment could still downgrade a paying tenant.** The live-subscription check read
+  `subscriptions` without a lock. If the new subscription's `activated` was applied but not yet committed when the
+  old one's `cancelled` arrived, the cancel missed it and wrote Free over Pro once the activation committed.
+  Reproduced with two real connections. The webhook handler now locks the tenant row first (as `meter.record`
+  does), so one tenant's webhooks apply one at a time.
+- 44 tests pass (1 new). The new test failed 3/3 runs without the lock and passed 5/5 with it.

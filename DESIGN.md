@@ -126,6 +126,7 @@ Why it's designed this way:
 `POST /webhooks/razorpay`: verify `X-Razorpay-Signature` (HMAC-SHA256 of the **raw** body), returning 400 on a forged one →
 insert `x-razorpay-event-id` into `webhook_events` (conflict → 200 "duplicate ignored") → upsert subscription + tenant,
 **in the same transaction** as the dedup insert, so an event can never be marked seen without being applied.
+A subscription event first locks its tenant row, so one tenant's webhooks apply one at a time.
 
 The tenant is set from the subscription **status** in the payload, not the event name, so every `subscription.*`
 event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows one rule:

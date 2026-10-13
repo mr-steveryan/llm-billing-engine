@@ -54,6 +54,8 @@ def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -
         log.warning("Razorpay %s for %s has no notes.tenant_id; not created by /checkout, ignored", event["event"], sub["id"])
         return "ignored: subscription has no tenant_id"
     tenant_id = notes["tenant_id"]
+    # Lock first: this tenant's webhooks run one at a time, so the live-subscription check below sees the others' commits.
+    conn.execute("SELECT 1 FROM tenants WHERE id = %s FOR UPDATE", (tenant_id,))
     # Razorpay doesn't guarantee delivery order. Only apply an event at least as new as the last one applied,
     # so a late 'activated' can't undo a 'cancelled'.
     newer = conn.execute(

@@ -71,10 +71,11 @@ tests/test_webhooks.py::test_out_of_order_older_event_does_not_win PASSED
 tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED
 tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED
 tests/test_webhooks.py::test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant PASSED
+tests/test_webhooks.py::test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation PASSED
 tests/test_webhooks.py::test_failed_apply_does_not_mark_event_seen PASSED
 tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED
 tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED
-============================== 43 passed in 1.24s ==============================
+============================== 44 passed in 1.91s ==============================
 ```
 Tests run against a separate `billing_test` database, rebuilt from `schema.sql` on every run.
 
@@ -95,6 +96,7 @@ Tests run against a separate `billing_test` database, rebuilt from `schema.sql` 
 | Byte-wise signature compare | `test_non_ascii_signature_is_rejected_not_crashed` (500 `TypeError` without it) |
 | Out-of-order guard's status | `test_out_of_order_older_event_does_not_win` (reported `applied` without it) |
 | Live-subscription check on downgrade | `test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant` (paying tenant dropped to Free without it) |
+| Tenant row lock in the webhook handler | `test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation` (3/3 runs; paying tenant dropped to Free without it) |
 | Razorpay status check for `authenticated` rows | `test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout` (409 forever without it) |
 
 ---
@@ -315,7 +317,7 @@ $ docker compose exec -T db psql -U billing -c "SELECT name, plan_id, status FRO
 
 Plan/status sync covered by tests: `activated` → pro/active, `halted` → pro/past_due (402), `cancelled` → free,
 an older event arriving late is ignored, a replay after a cancel does not re-upgrade, a late `cancelled` from an old
-subscription does not downgrade a tenant paying on a newer one, and a webhook that fails to apply is not marked as seen.
+subscription does not downgrade a tenant paying on a newer one (even when both webhooks arrive at once), and a webhook that fails to apply is not marked as seen.
 
 A real production case: a subscription created in the Razorpay dashboard (not by `/checkout`) arrived with
 `"notes": []` and crashed the handler (500) seven times while Razorpay retried. After the fix, the next real retry was acknowledged:
