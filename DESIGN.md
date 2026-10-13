@@ -77,6 +77,8 @@ Tokens are simulated by the caller. No model is called. Invalid shape (negative,
 | Call quota would be exceeded | **429** | "Monthly API call quota of N on plan 'X' exhausted; resets <date> (UTC)." |
 | Token quota would be exceeded | **429** | "Monthly token quota of N on plan 'X' would be exceeded (<used> used + <requested> requested); resets <date> (UTC)." |
 
+`cost_usd` is always a decimal string in plain notation (e.g. `"0.0624000000"`, a zero-cost call `"0.0000000000"`),
+never a float and never scientific notation like `"0E-10"`, so clients can parse it exactly.
 For Free tenants both 429 messages end with " or upgrade to Pro" before the final period.
 A failed charge alone doesn't block: while Razorpay retries (subscription `pending`) the tenant keeps access.
 

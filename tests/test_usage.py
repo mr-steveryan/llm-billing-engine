@@ -19,6 +19,13 @@ def test_empty_month_shows_zero_usage_and_plan_limits(client):
     assert u["cost_usd"] == "0"
 
 
+def test_zero_cost_is_plain_decimal_not_scientific(client):
+    # A stored numeric(18,10) zero is Decimal("0E-10"); str() of it leaked "0E-10" to clients.
+    r = generate(client, "zero", input_tokens=0, output_tokens=0)
+    assert r.status_code == 200 and r.json()["cost_usd"] == "0.0000000000"
+    assert usage(client)["cost_usd"] == "0.0000000000"
+
+
 def test_rollup_cost_matches_pinned_pricing_constants(client):
     generate(client, "r1", input_tokens=10_000, cached=4_000, output_tokens=5_000, reasoning=2_000)
     generate(client, "r2", input_tokens=3_000, cached=0, output_tokens=1_500, reasoning=1_000)

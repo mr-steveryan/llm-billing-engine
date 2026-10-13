@@ -46,8 +46,8 @@ def generate(
             event, replayed = meter.record(conn, tenant_id, idempotency_key, usage)
         except meter.BillingError as e:
             raise HTTPException(e.status_code, e.message)
-    # str, not float: keeps the exact decimal value stored in Postgres.
-    return {"event_id": event["id"], "cost_usd": str(event["cost_usd"]), "replayed": replayed}
+    # String, not float: keeps the exact decimal stored in Postgres. "f": plain notation, so zero is never "0E-10".
+    return {"event_id": event["id"], "cost_usd": format(event["cost_usd"], "f"), "replayed": replayed}
 
 
 @app.get("/usage")

@@ -1,7 +1,7 @@
 # Evidence
 
 One proof per requirement. Every block is real output against the running stack (`docker compose up`), using the
-seeded demo tenants. Captured on **2026-10-12**, except the full test suite and sections 4 and 7, re-captured on **2026-10-13**
+seeded demo tenants. Captured on **2026-10-12**, except the full test suite and sections 4, 7 and 9, re-captured on **2026-10-13**
 on a fresh database (after the schema moved to `migrations/`), so event ids there restart at 1:
 
 | Tenant | id | API key (demo only) |
@@ -36,58 +36,59 @@ tests/test_checkout.py::test_first_checkout_creates_and_stores_subscription_for_
 tests/test_checkout.py::test_repeat_checkout_reuses_unpaid_subscription PASSED [  3%]
 tests/test_checkout.py::test_checkout_refused_while_mandate_authenticated PASSED [  5%]
 tests/test_checkout.py::test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout PASSED [  7%]
-tests/test_checkout.py::test_razorpay_failure_stores_nothing PASSED      [  9%]
+tests/test_checkout.py::test_razorpay_failure_stores_nothing PASSED      [  8%]
 tests/test_checkout.py::test_later_activation_webhook_still_upgrades PASSED [ 10%]
 tests/test_checkout.py::test_checkout_refuses_tenant_already_on_pro PASSED [ 12%]
 tests/test_checkout.py::test_reuse_asks_razorpay_first PASSED            [ 14%]
 tests/test_checkout.py::test_missed_webhook_paid_subscription_blocks_a_second_one PASSED [ 16%]
-tests/test_checkout.py::test_dead_subscription_at_razorpay_starts_a_fresh_one PASSED [ 18%]
-tests/test_checkout.py::test_cancelling_after_a_stuck_authenticated_row_returns_tenant_to_free PASSED [ 20%]
+tests/test_checkout.py::test_dead_subscription_at_razorpay_starts_a_fresh_one PASSED [ 17%]
+tests/test_checkout.py::test_cancelling_after_a_stuck_authenticated_row_returns_tenant_to_free PASSED [ 19%]
 tests/test_checkout.py::test_razorpay_calls_have_a_timeout PASSED        [ 21%]
 tests/test_checkout.py::test_simultaneous_checkouts_create_one_subscription PASSED [ 23%]
 tests/test_metering.py::test_same_request_twice_creates_one_event PASSED [ 25%]
-tests/test_metering.py::test_concurrent_retries_of_one_request_create_one_event PASSED [ 27%]
-tests/test_metering.py::test_replay_returns_original_even_when_tenant_is_now_blocked PASSED [ 29%]
+tests/test_metering.py::test_concurrent_retries_of_one_request_create_one_event PASSED [ 26%]
+tests/test_metering.py::test_replay_returns_original_even_when_tenant_is_now_blocked PASSED [ 28%]
 tests/test_metering.py::test_call_quota_boundary_returns_429 PASSED      [ 30%]
 tests/test_metering.py::test_token_quota_rejects_a_request_that_would_cross_the_limit PASSED [ 32%]
-tests/test_metering.py::test_concurrent_requests_cannot_overshoot_quota PASSED [ 34%]
-tests/test_metering.py::test_past_due_tenant_gets_402 PASSED             [ 36%]
-tests/test_metering.py::test_pro_plan_has_higher_limits PASSED           [ 38%]
-tests/test_metering.py::test_other_tenants_usage_does_not_count_against_you PASSED [ 40%]
+tests/test_metering.py::test_concurrent_requests_cannot_overshoot_quota PASSED [ 33%]
+tests/test_metering.py::test_past_due_tenant_gets_402 PASSED             [ 35%]
+tests/test_metering.py::test_pro_plan_has_higher_limits PASSED           [ 37%]
+tests/test_metering.py::test_other_tenants_usage_does_not_count_against_you PASSED [ 39%]
 tests/test_metering.py::test_same_idempotency_key_in_two_tenants_is_two_events PASSED [ 41%]
-tests/test_metering.py::test_missing_or_bad_api_key_is_401 PASSED        [ 43%]
-tests/test_metering.py::test_missing_idempotency_key_is_400 PASSED       [ 45%]
-tests/test_metering.py::test_impossible_token_counts_are_422 PASSED      [ 47%]
-tests/test_metering.py::test_cost_uses_category_rates_not_a_token_sum PASSED [ 49%]
+tests/test_metering.py::test_missing_or_bad_api_key_is_401 PASSED        [ 42%]
+tests/test_metering.py::test_missing_idempotency_key_is_400 PASSED       [ 44%]
+tests/test_metering.py::test_impossible_token_counts_are_422 PASSED      [ 46%]
+tests/test_metering.py::test_cost_uses_category_rates_not_a_token_sum PASSED [ 48%]
 tests/test_usage.py::test_empty_month_shows_zero_usage_and_plan_limits PASSED [ 50%]
-tests/test_usage.py::test_rollup_cost_matches_pinned_pricing_constants PASSED [ 52%]
-tests/test_usage.py::test_last_months_usage_is_not_counted PASSED        [ 54%]
-tests/test_usage.py::test_tenant_sees_only_its_own_usage PASSED          [ 56%]
+tests/test_usage.py::test_zero_cost_is_plain_decimal_not_scientific PASSED [ 51%]
+tests/test_usage.py::test_rollup_cost_matches_pinned_pricing_constants PASSED [ 53%]
+tests/test_usage.py::test_last_months_usage_is_not_counted PASSED        [ 55%]
+tests/test_usage.py::test_tenant_sees_only_its_own_usage PASSED          [ 57%]
 tests/test_usage.py::test_usage_requires_api_key PASSED                  [ 58%]
 tests/test_webhooks.py::test_activated_flips_tenant_free_to_pro PASSED   [ 60%]
-tests/test_webhooks.py::test_forged_signature_is_rejected_and_changes_nothing PASSED [ 61%]
-tests/test_webhooks.py::test_non_ascii_signature_is_rejected_not_crashed PASSED [ 63%]
-tests/test_webhooks.py::test_missing_signature_is_rejected PASSED        [ 65%]
+tests/test_webhooks.py::test_forged_signature_is_rejected_and_changes_nothing PASSED [ 62%]
+tests/test_webhooks.py::test_non_ascii_signature_is_rejected_not_crashed PASSED [ 64%]
+tests/test_webhooks.py::test_missing_signature_is_rejected PASSED        [ 66%]
 tests/test_webhooks.py::test_replayed_event_is_ignored PASSED            [ 67%]
 tests/test_webhooks.py::test_out_of_order_older_event_does_not_win PASSED [ 69%]
-tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED [ 70%]
-tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED     [ 72%]
-tests/test_webhooks.py::test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant PASSED [ 74%]
+tests/test_webhooks.py::test_halted_subscription_blocks_usage_with_402 PASSED [ 71%]
+tests/test_webhooks.py::test_cancelled_returns_tenant_to_free PASSED     [ 73%]
+tests/test_webhooks.py::test_old_subscriptions_late_cancel_does_not_downgrade_paying_tenant PASSED [ 75%]
 tests/test_webhooks.py::test_same_second_authenticated_last_still_protects_paying_tenant PASSED [ 76%]
 tests/test_webhooks.py::test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation PASSED [ 78%]
 tests/test_webhooks.py::test_failed_apply_does_not_mark_event_seen PASSED [ 80%]
-tests/test_webhooks.py::test_event_for_unknown_tenant_is_acknowledged_not_crashed[00000000-0000-7000-8000-0000000000ff] PASSED [ 81%]
+tests/test_webhooks.py::test_event_for_unknown_tenant_is_acknowledged_not_crashed[00000000-0000-7000-8000-0000000000ff] PASSED [ 82%]
 tests/test_webhooks.py::test_event_for_unknown_tenant_is_acknowledged_not_crashed[not-a-uuid] PASSED [ 83%]
 tests/test_webhooks.py::test_event_for_unknown_tenant_is_acknowledged_not_crashed[42] PASSED [ 85%]
 tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[not json] PASSED [ 87%]
 tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[[]] PASSED [ 89%]
-tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"event": "subscription.activated", "created_at": 1000, "payload": {}}] PASSED [ 90%]
+tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"event": "subscription.activated", "created_at": 1000, "payload": {}}] PASSED [ 91%]
 tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"event": "subscription.activated", "created_at": 1000, "payload": {"subscription": {"entity": {"id": "s"}}}}] PASSED [ 92%]
 tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"event": "payment.captured", "created_at": 99999999999999, "payload": {}}] PASSED [ 94%]
 tests/test_webhooks.py::test_signed_but_malformed_event_is_400_and_changes_nothing[{"created_at": 1000, "payload": {}}] PASSED [ 96%]
 tests/test_webhooks.py::test_non_subscription_event_is_recorded_but_changes_nothing PASSED [ 98%]
 tests/test_webhooks.py::test_subscription_not_created_by_checkout_is_acknowledged_not_crashed PASSED [100%]
-============================== 55 passed in 2.00s ==============================
+============================== 56 passed in 2.25s ==============================
 ```
 Tests run against a separate `billing_test` database, rebuilt from `migrations/` on every run.
 
@@ -112,6 +113,7 @@ Tests run against a separate `billing_test` database, rebuilt from `migrations/`
 | `authenticated` counted as live in the downgrade check | `test_same_second_authenticated_last_still_protects_paying_tenant` (real 16:07:17 arrival order; paying tenant dropped to Free without it) |
 | Tenant row lock in the webhook handler | `test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation` (3/3 runs; paying tenant dropped to Free without it) |
 | Razorpay status check for `authenticated` rows | `test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout` (409 forever without it) |
+| Plain-decimal formatting of `cost_usd` | `test_zero_cost_is_plain_decimal_not_scientific` (`"0E-10"` without it) |
 
 ---
 
@@ -355,22 +357,30 @@ Razorpay subscription.cancelled for sub_Tn28QmKCFnE40o has no notes.tenant_id; n
 
 ```
 $ docker compose exec -T db psql -U billing -c '\dt'
- Schema |      Name      | Type  |  Owner
---------+----------------+-------+---------
- public | plans          | table | billing
- public | subscriptions  | table | billing
- public | tenants        | table | billing
- public | usage_events   | table | billing
- public | webhook_events | table | billing
+                List of tables
+ Schema |       Name        | Type  |  Owner  
+--------+-------------------+-------+---------
+ public | plans             | table | billing
+ public | schema_migrations | table | billing
+ public | subscriptions     | table | billing
+ public | tenants           | table | billing
+ public | usage_events      | table | billing
+ public | webhook_events    | table | billing
+(6 rows)
 
 $ docker compose exec -T db psql -U billing -c "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'usage_events'::regclass AND contype IN ('u','c') ORDER BY conname"
+                  conname                   |                              pg_get_constraintdef                              
+--------------------------------------------+--------------------------------------------------------------------------------
  usage_events_check                         | CHECK (((cached_input_tokens >= 0) AND (cached_input_tokens <= input_tokens)))
  usage_events_check1                        | CHECK (((reasoning_tokens >= 0) AND (reasoning_tokens <= output_tokens)))
  usage_events_cost_usd_check                | CHECK ((cost_usd >= (0)::numeric))
  usage_events_input_tokens_check            | CHECK ((input_tokens >= 0))
  usage_events_output_tokens_check           | CHECK ((output_tokens >= 0))
  usage_events_tenant_id_idempotency_key_key | UNIQUE (tenant_id, idempotency_key)
+(6 rows)
+
 ```
+`schema_migrations` is the migration runner's own record of which `migrations/` files are applied.
 Isolation: the tenant comes only from the API key (stored as a SHA-256 hash), never from the request body.
 - `test_other_tenants_usage_does_not_count_against_you`: Tenant B at its limit does not affect Tenant A.
 - `test_same_idempotency_key_in_two_tenants_is_two_events`: idempotency keys are scoped per tenant.

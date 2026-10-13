@@ -335,3 +335,13 @@ Code passed everything except: R1 layering and R2 validation (partial), R3 backg
   ngrok's free dev domain, checked against ngrok's docs.
 - Split into four commits, each checked on its own in a temporary worktree: 55 tests pass at every step, and the
   commit-2 image ships both migrations.
+
+## 2026-10-13: Third evaluation run, two small fixes. Commit `TBD`
+
+A third run of the evaluation workflow after the push: R2 and R4 now pass, all Section 6 boxes and gates pass, and the
+submission pack is complete on GitHub. R3 stays a disclosed FAIL; R1, R5 and R7 stay PARTIAL. Two small findings fixed:
+- **`"0E-10"` for a zero cost.** `str()` of a stored `numeric(18,10)` zero gives scientific notation, which `/generate`
+  and `/usage` passed to clients. Both now use `format(d, "f")`, so zero is `"0.0000000000"`. New test
+  `test_zero_cost_is_plain_decimal_not_scientific` fails without the fix. DESIGN.md states the format.
+- **Stale EVIDENCE §9.** Its `\dt` predated `schema_migrations`; re-captured raw. The test list was re-captured too.
+- 56 tests pass. Not checked live through the API container: covered by the test, which goes through the real app.

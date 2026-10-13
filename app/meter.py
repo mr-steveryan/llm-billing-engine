@@ -60,7 +60,7 @@ def usage_summary(conn: psycopg.Connection[DictRow], tenant_id) -> dict:
             "output": used["output_tokens"],
             "reasoning": used["reasoning_tokens"],
         },
-        "cost_usd": str(used["cost_usd"]),  # str, not float: keeps the exact decimal value stored in Postgres
+        "cost_usd": format(used["cost_usd"], "f"),  # string, not float: exact decimal; "f" so zero is "0.0000000000", not "0E-10"
     }
 
 
