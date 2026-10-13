@@ -207,7 +207,7 @@ Ran `/ponytail-audit` on the committed repo. It reported 4 findings, all fixed:
   command fails (exit 1) when nothing is listening.
 - 40 tests pass. Containers rebuilt; health, usage and webhook probes OK over localhost.
 
-## 2026-10-13: Second Ponytail audit fixes
+## 2026-10-13: Second Ponytail audit fixes. Commit `0f0520c`
 
 Ran `/ponytail-audit` again on the committed repo. It reported 3 findings, all fixed:
 - **A paying tenant could be downgraded by an old subscription.** `/checkout` starts a new subscription when the old
