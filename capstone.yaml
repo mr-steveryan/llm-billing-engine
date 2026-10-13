@@ -1,0 +1,49 @@
+# Manifest for the capstone evaluator. Needs Docker; `test` also needs uv.
+run: "[ -f .env ] || cp .env.example .env; docker compose up -d --build --wait"
+seed: "docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/02-seed.sql"
+test: "uv run pytest"
+base_url: "http://localhost:8000"
+
+# Demo API keys come from the seed step (seed.sql). Both tenants start on Free.
+endpoints:
+  - name: health
+    method: GET
+    path: /health
+    expect_status: 200
+
+  - name: meter a call
+    method: POST
+    path: /generate
+    headers:
+      X-API-Key: demo-key-tenant-b
+      Idempotency-Key: probe-1
+      Content-Type: application/json
+    body: '{"input_tokens":10000,"cached_input_tokens":4000,"output_tokens":5000,"reasoning_tokens":2000}'
+    expect_status: 200   # repeat with the same Idempotency-Key: same event_id, "replayed": true
+
+  - name: monthly usage and cost
+    method: GET
+    path: /usage
+    headers:
+      X-API-Key: demo-key-tenant-b
+    expect_status: 200
+
+  - name: missing API key
+    method: GET
+    path: /usage
+    expect_status: 401
+
+  - name: forged webhook
+    method: POST
+    path: /webhooks/razorpay
+    headers:
+      X-Razorpay-Signature: forged
+      X-Razorpay-Event-Id: probe-evt
+      Content-Type: application/json
+    body: '{"event":"subscription.activated"}'
+    expect_status: 400
+
+  - name: checkout page
+    method: GET
+    path: /checkout
+    expect_status: 200

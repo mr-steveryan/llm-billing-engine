@@ -4,6 +4,24 @@ Three core paths: **meter** (`POST /generate`), **read** (`GET /usage`), **payme
 plus `GET`/`POST /checkout` to start a subscription and `GET /health`.
 Razorpay is the source of truth for payments; our database mirrors it only through signature-verified webhooks.
 
+## Brief → this build
+
+The brief is written for Stripe. Payments here use **Razorpay** (test mode), so these names differ; the behaviour is the same.
+
+| Brief says | This build | Notes |
+|------------|------------|-------|
+| `checkout.session.completed` | `subscription.activated` | Status `active` → tenant Pro |
+| `customer.subscription.updated` | `subscription.updated`, plus `subscription.halted` | Status mirrored; `halted` (all retries failed) → `past_due` → 402 |
+| `customer.subscription.deleted` | `subscription.cancelled` (also `completed`, `expired`) | Tenant back to Free |
+| Signature header (`Stripe-Signature`) | `X-Razorpay-Signature`: HMAC-SHA256 of the raw body | Forged → 400 |
+| Stripe event id for dedup | `x-razorpay-event-id` header → `webhook_events` PK | Replay → `"duplicate ignored"` |
+| `POST /webhooks/stripe` | `POST /webhooks/razorpay` | |
+| Stripe CLI to replay events | `uv run scripts/replay_webhook.py` | Razorpay has no CLI; the script signs events with your secret: valid → replayed → forged |
+| Stripe test mode | Razorpay **test mode** (`rzp_test_` keys, test cards) | No real money moves |
+| `MeterService.record(tenant, type, qty, idempotencyKey)` | `meter.record(conn, tenant_id, idempotency_key, usage)` | One event = one **API call** carrying its **AI token** counts, so both usage types are recorded by one call; the tenant comes from the API key |
+| "Store usage event, then quota check" (diagram order) | Quota check **first**, then store | Storing first would record and count rejected requests |
+| `GET /usage → { used, limit, cost }` | Same, split into `calls` and `tokens`, plus per-category token totals | Totals let anyone recompute `cost_usd` from the pinned rates |
+
 ## Plans
 
 | Plan | API calls / month | Tokens / month | Price |

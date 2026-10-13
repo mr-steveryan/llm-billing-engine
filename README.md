@@ -43,6 +43,19 @@ flowchart LR
     rzp -- "signed webhook<br/>(via ngrok locally)" --> wh --> db
 ```
 
+Plain-text version:
+```
+ Client app ──X-API-Key, Idempotency-Key, token counts──▶ POST /generate
+                                                            └─ meter.record(): lock tenant → same key? return original
+                                                               → past_due? 402 → over quota? 429 → price + store event
+ Client app ──X-API-Key──▶ GET /usage ── this month's calls, tokens, cost vs. plan limits
+ Browser ──▶ /checkout ──create subscription (notes.tenant_id)──▶ Razorpay (test mode)
+ Razorpay ──signed webhook (ngrok locally)──▶ POST /webhooks/razorpay
+                                               └─ verify HMAC (forged → 400) → dedup event id (replay → ignored)
+                                                  → sync subscription + tenant plan
+ All of the above ──▶ Postgres 18: plans · tenants · subscriptions · usage_events · webhook_events
+```
+
 One transaction per request: a rejected call stores nothing, and a webhook's dedup row commits together with the plan change.
 
 ## Plans
@@ -94,43 +107,52 @@ Two different numbers, in two currencies. Only the first is ever charged.
 
 ## Setup
 
-**Prerequisites:** Docker (OrbStack on macOS), [uv](https://docs.astral.sh/uv/). For real payments you also need a
-Razorpay account in **Test Mode** and [ngrok](https://ngrok.com) (free plan).
+**Prerequisites:** Docker (OrbStack on macOS) and [uv](https://docs.astral.sh/uv/) for tests. Everything is free;
+no step needs a credit card. For real test-mode payments you also need a Razorpay account in **Test Mode** and
+[ngrok](https://ngrok.com) (free plan, no payment method needed).
 
-1. **Configure.** `cp .env.example .env` and fill in:
+**Run** (one command; the same one is in [`capstone.yaml`](capstone.yaml)):
+```
+[ -f .env ] || cp .env.example .env; docker compose up -d --build --wait
+```
+It creates `.env` from the placeholders if you don't have one, builds the image, and returns once Postgres is healthy and
+the API is up. The database schema is created from `schema.sql` on first start.
 
-   | Key | Where it comes from |
-   |-----|---------------------|
-   | `RAZORPAY_KEY_ID` | Dashboard (Test Mode) → Account & Settings → API Keys (`rzp_test_…`) |
-   | `RAZORPAY_KEY_SECRET` | shown once, next to the key id |
-   | `RAZORPAY_WEBHOOK_SECRET` | any long random string; paste the same value in the dashboard webhook (step 4) |
-   | `RAZORPAY_PLAN_ID` | Dashboard → Subscriptions → Plans → create "Pro", monthly (`plan_…`) |
+**Seed** demo data (two tenants, both on Free). Safe to run any number of times; existing tenants are left as they are:
+```
+docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/02-seed.sql
+```
+Demo API keys: `demo-key-tenant-a`, `demo-key-tenant-b`. Check: `curl localhost:8000/health` → `{"status":"ok"}`.
 
-   The app refuses to start if any key is missing, empty or misspelled. `.env` must contain only these four keys.
+**Test** (on the host; the runtime image has no test tools):
+```
+uv run pytest
+```
+Tests use a separate `billing_test` database, rebuilt on every run, so your dev data is never touched.
+The `db` container must be running. Don't run two test sessions at once.
 
-2. **Run.**
-   ```
-   docker compose up -d --build
-   curl localhost:8000/health          # {"status":"ok"}
-   ```
-   The database is created from `schema.sql` and `seed.sql` on first start. Two demo tenants are seeded:
-   `demo-key-tenant-a` and `demo-key-tenant-b` (both Free). After changing `schema.sql`, run `docker compose down -v`
-   (this **wipes** the dev database).
+**Configuration (`.env`).** With the placeholder values from `.env.example`, metering, quotas and `/usage` work fully.
+Checkout and real webhooks need real Razorpay **test-mode** values:
 
-3. **Test.**
-   ```
-   uv run pytest
-   ```
-   Tests use a separate `billing_test` database, rebuilt on every run, so your dev data is never touched.
-   The `db` container must be running. Don't run two test sessions at once.
+| Key | Where it comes from |
+|-----|---------------------|
+| `RAZORPAY_KEY_ID` | Dashboard (Test Mode) → Account & Settings → API Keys (`rzp_test_…`) |
+| `RAZORPAY_KEY_SECRET` | shown once, next to the key id |
+| `RAZORPAY_WEBHOOK_SECRET` | any long random string; paste the same value in the dashboard webhook (below) |
+| `RAZORPAY_PLAN_ID` | Dashboard → Subscriptions → Plans → create "Pro", monthly (`plan_…`) |
+| `DATABASE_URL` | only used when running the API outside Docker; compose sets its own |
 
-4. **Webhooks (only for real payments).** Razorpay must reach your laptop:
-   ```
-   ngrok http --url=<your-ngrok-dev-domain> 8000
-   ```
-   In the Razorpay dashboard → Webhooks, add `https://<your-ngrok-dev-domain>/webhooks/razorpay` (no `:8000`),
-   use your `RAZORPAY_WEBHOOK_SECRET`, and tick **all `subscription.*` events**. Without those, only `payment.*`
-   events arrive and plans never change.
+The app refuses to start if a key is missing, empty or misspelled, and `.env` must contain only these keys.
+After `.env` changes: `docker compose up -d --force-recreate api`. After `schema.sql` changes:
+`docker compose down -v` (this **wipes** the database), then run and seed again.
+
+**Webhooks (only for real payments).** Razorpay must reach your laptop:
+```
+ngrok http --url=<your-ngrok-dev-domain> 8000
+```
+In the Razorpay dashboard → Webhooks, add `https://<your-ngrok-dev-domain>/webhooks/razorpay` (no `:8000`),
+use your `RAZORPAY_WEBHOOK_SECRET`, and tick **all `subscription.*` events**. Without those, only `payment.*`
+events arrive and plans never change.
 
 ## Try it
 
@@ -174,15 +196,30 @@ app/config.py      settings from .env (pydantic-settings)
 app/db.py          Postgres connection
 app/checkout.html  Razorpay checkout page
 schema.sql         tables, constraints, plan limits
-seed.sql           demo tenants (dev only)
+seed.sql           demo tenants (dev only), safe to re-run
 scripts/replay_webhook.py
 tests/             pytest against real Postgres
+capstone.yaml      evaluator manifest: run, seed, test, base_url, endpoints
+.env.example       every environment variable, with placeholder values
 ```
 
-## Out of scope
+## Limitations
 
-Invoices, proration, overage billing, dashboards, an admin API, and a migrations tool. Kept out on purpose, per the brief.
+Honest list of what this build does not do, or does only partly:
 
-**Known limit:** one tenant with several Razorpay subscriptions. Cancelling one while another is active would
-downgrade the tenant. `/checkout` never leaves more than one open subscription per tenant (it reuses an unpaid one),
-so this only applies to subscriptions created for the same tenant outside `/checkout`, e.g. by hand. See [DESIGN.md](DESIGN.md#known-limits).
+- **Test mode only.** Payments run in Razorpay test mode; no real money has moved and live mode was never tried.
+- **Token counts are trusted.** The caller reports its own token counts (the brief allows simulated tokens) and no model is
+  called, so a client could under-report. A real deployment would meter at the model proxy instead.
+- **The token cost is a figure, not a charge.** No invoices, proration or overage billing (out of scope per the brief).
+  An output-heavy Pro tenant can cost more at provider rates than the ₹ subscription brings in.
+- **One pricing tier.** No cache-write or long-context (>272K) rates; usage events don't carry that information.
+- **Several subscriptions for one tenant.** Any `cancelled` event moves its tenant to Free, even if another of that tenant's
+  subscriptions is still active. `/checkout` never creates a second live one (it checks Razorpay before reusing an unpaid
+  one), so this only happens for subscriptions made for the same tenant outside `/checkout`, e.g. by hand.
+- **Idempotent replays aren't compared.** The same `Idempotency-Key` with a different body returns the original result.
+- **Local webhooks need a tunnel** (ngrok) so Razorpay can reach the laptop.
+- **No admin API.** Tenants come only from `seed.sql`, and the demo API keys there are public on purpose.
+- **Small-scale choices.** One database connection per request (no pool), and `/checkout` holds the tenant's row lock
+  during the Razorpay API call. Fine for a capstone, not for heavy traffic.
+
+More detail and the reasoning: [DESIGN.md](DESIGN.md#known-limits).

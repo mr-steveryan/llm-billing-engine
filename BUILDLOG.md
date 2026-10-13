@@ -4,6 +4,39 @@ A running record of how the engine was built: what each stage delivered, the dec
 what went wrong and how it was fixed. Newest stage last. Built with Claude Code:
 every design decision below was proposed with its reasoning and approved or changed by me before it was built.
 
+## AI usage summary
+
+The AI tool was Claude Code. It wrote most of the code, tests and docs; I set the brief, made the decisions listed
+below, ran the real Razorpay checkouts, and reviewed each stage before committing it. Details are in the dated entries.
+
+**Where AI helped**
+- Turned the brief into a staged plan and a schema, explaining every decision (data types, locking, idempotency).
+- Researched Razorpay instead of guessing: its webhook event names, signature and event-id headers, and the
+  required subscription fields, all checked in Razorpay's docs. It also found the Postgres 18 Docker volume-path change.
+- Wrote tests against real Postgres, and proved they work by breaking each protection on purpose until its test failed.
+- Debugged the real Razorpay run from logs and the database, e.g. found that only `payment.*` events were arriving.
+- Ran a 3-agent review that found a real double-subscription bug in `/checkout`.
+
+**Where AI was wrong**
+- Picked Postgres 16 out of habit instead of checking the current release (I questioned it; moved to 18).
+- Designed the tests to wipe the dev database (I caught it; tests now use a separate `billing_test` database).
+- Mis-annotated the DB connection type (`db.py:9`, I spotted it) and needed two wrong attempts before reading psycopg's source.
+- Wrote a test helper that used the event name `activated` as the subscription status, so two tests passed for the wrong reason.
+- Gave a US test card (Razorpay's docs had geo-redirected); my Indian account rejected it as international.
+- Wrote a webhook handler that crashed on Razorpay's empty-notes shape (`[]`), causing seven 500s in a real run.
+- Claimed `/checkout`'s 409 prevented double charges; it didn't (found by the review). Its first fix reused a possibly
+  stale subscription without asking Razorpay (I raised it). Its reviewer agent's own suggested fix would not have worked.
+- Used "billed" for the USD token cost, which suggested customers are charged it (I questioned ₹ vs USD; wording fixed).
+- Gave a wrong reason for `bigint` and left stale labels in the docs (found by the review).
+
+**What I changed or decided**
+- Razorpay instead of Stripe; 429 = quota exhausted, 402 = subscription halted (all payment retries failed); Pro = 50,000 calls / 10M tokens.
+- OpenAI-style token fields (cached ⊂ input, reasoning ⊂ output), chosen over the AI's recommended disjoint fields.
+- Mirror a real model's prices (OpenAI `gpt-6.1-sol`) instead of the AI's suggested round demo rates.
+- Postgres 18, `pydantic-settings` for config, ngrok's fixed domain for webhooks, and `.gitignore` from `uv init`.
+- Asked for: the separate test database, the type fix, the stale-checkout fix, the ₹-vs-USD clarification,
+  the Stripe → Razorpay mapping in DESIGN.md, and this log. I made every commit myself.
+
 ## 2026-10-10: Planning
 
 - Brief: tenant plans (Free/Pro), usage metering, quota enforcement (429/402), token cost rules, subscription payments.
@@ -135,3 +168,19 @@ every design decision below was proposed with its reasoning and approved or chan
 - 38 tests pass (9 new). Each new fix was broken on purpose and its test failed.
 - Not verified: the healthcheck change on a truly fresh database init, because that needs `docker compose down -v`,
   which wipes dev data. The checkout page's error message was not tried in a browser.
+
+## 2026-10-13: Submission requirements (brief Section 10). (not committed yet)
+
+- Added `capstone.yaml` (run, seed, test, base_url, endpoints to probe). The run command creates `.env` from
+  `.env.example` if missing and uses `docker compose up --wait`, so the seed step never runs against an unready database.
+- `seed.sql` is now safe to re-run (`ON CONFLICT DO NOTHING`), so "seed" is a real, repeatable step.
+- README: one run command plus one seed command, a plain-text architecture sketch next to the mermaid diagram,
+  and an honest Limitations section (including that caller-reported token counts are trusted).
+- DESIGN.md: a "Brief → this build" table mapping the brief's Stripe names to Razorpay.
+- BUILDLOG: an AI usage summary at the top (where AI helped, where it was wrong, what I changed).
+- **Verified like a stranger would:** copied only the files git would ship (no `.env`) into a scratch folder, ran
+  `capstone.yaml`'s run, seed (twice) and test commands on a brand-new database, and probed every listed endpoint.
+  All matched their expected status, and 38 tests passed. This also confirmed the TCP healthcheck on a fresh init,
+  which was left unverified earlier.
+- Secret scan of the whole git history: no `.env` ever committed, no real-looking Razorpay keys, no secret values
+  in `.env.example`.
