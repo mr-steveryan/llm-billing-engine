@@ -235,7 +235,7 @@ Ran `/ponytail-audit` a third time. It reported 1 finding, in the previous round
   does), so one tenant's webhooks apply one at a time.
 - 44 tests pass (1 new). The new test failed 3/3 runs without the lock and passed 5/5 with it.
 
-## 2026-10-13: Ponytail review fix
+## 2026-10-13: Ponytail review fix. Commit `c44cb2d`
 
 Ran `/ponytail-review` on the third audit's fix (`c3f70d9`). It reported 1 finding:
 - **The race test could pass without proving anything.** The old subscription's `cancelled` runs in a background
