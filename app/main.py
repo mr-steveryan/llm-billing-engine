@@ -1,34 +1,27 @@
-import hashlib
-import json
 from pathlib import Path
 from typing import Annotated
 
-import razorpay
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 
 from app import billing, meter
 from app.config import settings
 from app.db import connect
 
+# HTTP layer only: parse and check input, call app.meter / app.billing, map their errors to status codes.
 app = FastAPI(title="LLM Billing Engine")
-
-# Seconds per Razorpay API call. The SDK sets no timeout, so a stalled call would hang forever while
-# /checkout holds the tenant row lock, and that tenant's /generate waits on the same lock.
-RAZORPAY_TIMEOUT = 10
 
 
 def tenant_id_for(conn, api_key: str | None):
     # The tenant comes only from the API key, never from the request body: that is the isolation boundary.
     if not api_key:
         raise HTTPException(401, "Missing X-API-Key header.")
-    row = conn.execute(
-        "SELECT id FROM tenants WHERE api_key_hash = %s", (hashlib.sha256(api_key.encode()).hexdigest(),)
-    ).fetchone()
-    if not row:
+    tenant_id = meter.tenant_for_key(conn, api_key)
+    if not tenant_id:
         raise HTTPException(401, "Invalid API key.")
-    return row["id"]
+    return tenant_id
 
 
 @app.get("/health")
@@ -61,28 +54,7 @@ def generate(
 def get_usage(x_api_key: Annotated[str | None, Header()] = None):
     with connect() as conn:
         tenant_id = tenant_id_for(conn, x_api_key)  # key -> tenant: you can only ever read your own usage
-        tenant = conn.execute(
-            """SELECT t.plan_id, t.status, p.monthly_calls, p.monthly_tokens
-               FROM tenants t JOIN plans p ON p.id = t.plan_id WHERE t.id = %s""",
-            (tenant_id,),
-        ).fetchone()
-        used = meter.monthly_usage(conn, tenant_id)
-    return {
-        "plan": tenant["plan_id"],
-        "status": tenant["status"],
-        "period": {"start": used["period_start"], "resets_on": used["resets_on"]},
-        "calls": {"used": used["calls"], "limit": tenant["monthly_calls"]},
-        "tokens": {
-            "used": used["tokens"],
-            "limit": tenant["monthly_tokens"],
-            # Per-category totals, so anyone can recompute cost_usd from the pinned rates in app/pricing.py.
-            "input": used["input_tokens"],
-            "cached_input": used["cached_input_tokens"],
-            "output": used["output_tokens"],
-            "reasoning": used["reasoning_tokens"],
-        },
-        "cost_usd": str(used["cost_usd"]),
-    }
+        return meter.usage_summary(conn, tenant_id)
 
 
 @app.get("/checkout")
@@ -94,41 +66,12 @@ def checkout_page():
 def create_checkout(x_api_key: Annotated[str | None, Header()] = None):
     with connect() as conn:  # one transaction: if Razorpay raises, nothing is stored
         tenant_id = tenant_id_for(conn, x_api_key)
-        # Row lock serializes concurrent checkouts per tenant; held across the Razorpay call, acceptable at this volume.
-        plan = conn.execute("SELECT plan_id FROM tenants WHERE id = %s FOR UPDATE", (tenant_id,)).fetchone()["plan_id"]
-        if plan == "pro":
-            raise HTTPException(409, "Tenant is already on Pro.")
-        # A second Razorpay subscription would double-charge, so an earlier unpaid or authorised one blocks a new one.
-        pending = conn.execute(
-            "SELECT id, status, updated_at FROM subscriptions WHERE tenant_id = %s AND status IN ('created', 'authenticated')",
-            (tenant_id,),
-        ).fetchall()
-        client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret.get_secret_value()))
-        if pending:  # unpaid or authorised checkout from an earlier click
-            # Our row is only a mirror and may be stale if a webhook was missed, so ask Razorpay before acting on it.
-            # The tenant's plan still changes only through webhooks; only a dead subscription's row is corrected below.
-            newest = max(pending, key=lambda s: s["updated_at"])
-            live = client.subscription.fetch(newest["id"], timeout=RAZORPAY_TIMEOUT)["status"]
-            if live == "created":
-                return {"key_id": settings.razorpay_key_id, "subscription_id": newest["id"]}
-            if live not in ("cancelled", "completed", "expired"):  # live at Razorpay (e.g. paid): never create a second
-                raise HTTPException(409, "A subscription is already in progress at Razorpay; "
-                                         "your plan updates when its webhook arrives.")
-            # Dead at Razorpay: record that (a stuck 'authenticated' row would count as live and block downgrades),
-            # then fall through and start a fresh subscription.
-            conn.execute("UPDATE subscriptions SET status = %s WHERE id = %s", (live, newest["id"]))
-        # Server sets tenant_id from the authenticated key; the browser never chooses who gets upgraded.
-        sub = client.subscription.create({
-            "plan_id": settings.razorpay_plan_id,
-            "total_count": 12,  # 12 monthly cycles; Razorpay requires an end
-            "notes": {"tenant_id": str(tenant_id)},
-        }, timeout=RAZORPAY_TIMEOUT)
-        conn.execute(
-            "INSERT INTO subscriptions (id, tenant_id, status, updated_at) VALUES (%s, %s, %s, to_timestamp(%s))",
-            (sub["id"], tenant_id, sub["status"], sub["created_at"]),
-        )
+        try:
+            subscription_id = billing.start_checkout(conn, tenant_id)
+        except meter.BillingError as e:
+            raise HTTPException(e.status_code, e.message)
     # The browser's payment "success" callback is never trusted: only the signed webhook changes the plan.
-    return {"key_id": settings.razorpay_key_id, "subscription_id": sub["id"]}
+    return {"key_id": settings.razorpay_key_id, "subscription_id": subscription_id}
 
 
 @app.post("/webhooks/razorpay")
@@ -139,7 +82,10 @@ async def razorpay_webhook(request: Request):
     event_id = request.headers.get("x-razorpay-event-id")
     if not event_id:
         raise HTTPException(400, "Missing x-razorpay-event-id header.")
-    event = json.loads(raw)
+    try:
+        event = billing.RazorpayEvent.model_validate_json(raw)
+    except ValidationError:
+        raise HTTPException(400, "Malformed webhook event.")
 
     def apply():
         with connect() as conn:  # one transaction for dedup + plan sync

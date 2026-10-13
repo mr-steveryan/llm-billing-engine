@@ -1,9 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 import app.main
+from app import billing
 from app.config import settings
 from app.db import connect
 from tests.conftest import KEY_A, TENANT_A
@@ -27,7 +29,7 @@ class FakeRazorpay:
         self.calls.append(payload)
         self.kwargs.append(kwargs)
         if self.fail:
-            raise RuntimeError("razorpay down")
+            raise requests.exceptions.ConnectionError("razorpay down")
         n = len(self.calls)  # a new id per subscription: sub_FAKE0000000001, sub_FAKE0000000002, ...
         return {"id": f"sub_FAKE{n:010d}", "status": "created", "created_at": 1_000 * n}
 
@@ -40,7 +42,7 @@ class FakeRazorpay:
 @pytest.fixture
 def fake(monkeypatch):
     f = FakeRazorpay()
-    monkeypatch.setattr(app.main.razorpay, "Client", f)
+    monkeypatch.setattr(billing.razorpay, "Client", f)
     return f
 
 
@@ -90,9 +92,9 @@ def test_stale_authenticated_row_dead_at_razorpay_does_not_block_checkout(client
 
 
 def test_razorpay_failure_stores_nothing(client, monkeypatch):
-    monkeypatch.setattr(app.main.razorpay, "Client", FakeRazorpay(fail=True))
-    with pytest.raises(RuntimeError):  # TestClient re-raises unhandled app errors
-        checkout(client)
+    monkeypatch.setattr(billing.razorpay, "Client", FakeRazorpay(fail=True))
+    r = checkout(client)
+    assert r.status_code == 502 and "Payment provider" in r.json()["detail"]  # a clean error, never a 500
     assert stored_subscriptions() == []
 
 
@@ -154,7 +156,7 @@ def test_cancelling_after_a_stuck_authenticated_row_returns_tenant_to_free(clien
 def test_razorpay_calls_have_a_timeout(client, fake):
     checkout(client)  # create
     checkout(client)  # fetch before reuse
-    assert fake.kwargs == [{"timeout": app.main.RAZORPAY_TIMEOUT}] * 2  # never wait forever while holding the lock
+    assert fake.kwargs == [{"timeout": billing.RAZORPAY_TIMEOUT}] * 2  # never wait forever while holding the lock
 
 
 def test_simultaneous_checkouts_create_one_subscription(fake):

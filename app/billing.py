@@ -1,13 +1,52 @@
 import hashlib
 import hmac
 import logging
+import uuid
 
 import psycopg
+import razorpay
+import requests
 from psycopg.rows import DictRow
+from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
+from app.meter import BillingError
 
 log = logging.getLogger(__name__)
+
+# Seconds per Razorpay API call. The SDK sets no timeout, so a stalled call would hang forever while
+# start_checkout holds the tenant row lock, and that tenant's /generate waits on the same lock.
+RAZORPAY_TIMEOUT = 10
+# What a failed Razorpay call raises: API errors from the SDK, network errors and timeouts from requests (its HTTP client).
+RAZORPAY_ERRORS = (razorpay.errors.BadRequestError, razorpay.errors.GatewayError, razorpay.errors.ServerError,
+                   requests.exceptions.RequestException)
+
+
+class _Subscription(BaseModel):
+    id: str
+    status: str
+    notes: dict | list  # Razorpay sends empty notes as []
+
+
+class _SubscriptionPayload(BaseModel):
+    entity: _Subscription
+
+
+class _Payload(BaseModel):
+    subscription: _SubscriptionPayload | None = None
+
+
+class RazorpayEvent(BaseModel):
+    """The fields apply_event reads. Validated at the boundary, so a signed but malformed body is a 400, not a 500."""
+    event: str
+    created_at: int = Field(ge=0, le=4_102_444_800)  # unix seconds; capped at 2100 so to_timestamp can't overflow
+    payload: _Payload
+
+    @model_validator(mode="after")
+    def subscription_events_carry_one(self):
+        if self.event.startswith("subscription.") and self.payload.subscription is None:
+            raise ValueError("subscription event without payload.subscription.entity")
+        return self
 
 # Razorpay subscription status -> (tenant plan, tenant status). Decided by status, not event name,
 # so every subscription.* event (activated, charged, halted, cancelled, updated, ...) follows one rule.
@@ -29,7 +68,52 @@ def signature_is_valid(raw_body: bytes, signature: str | None) -> bool:
     return signature is not None and hmac.compare_digest(expected.encode(), signature.encode("latin-1"))  # constant-time
 
 
-def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -> str:
+def start_checkout(conn: psycopg.Connection[DictRow], tenant_id) -> str:
+    """Return the Razorpay subscription id the tenant should pay. Raises BillingError for 409/502.
+
+    Runs in the caller's transaction: if Razorpay fails, nothing is stored.
+    """
+    # Row lock serializes concurrent checkouts per tenant; held across the Razorpay call, acceptable at this volume.
+    plan = conn.execute("SELECT plan_id FROM tenants WHERE id = %s FOR UPDATE", (tenant_id,)).fetchone()["plan_id"]
+    if plan == "pro":
+        raise BillingError(409, "Tenant is already on Pro.")
+    # A second Razorpay subscription would double-charge, so an earlier unpaid or authorised one blocks a new one.
+    pending = conn.execute(
+        "SELECT id, status, updated_at FROM subscriptions WHERE tenant_id = %s AND status IN ('created', 'authenticated')",
+        (tenant_id,),
+    ).fetchall()
+    client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret.get_secret_value()))
+    try:
+        if pending:  # unpaid or authorised checkout from an earlier click
+            # Our row is only a mirror and may be stale if a webhook was missed, so ask Razorpay before acting on it.
+            # The tenant's plan still changes only through webhooks; only a dead subscription's row is corrected below.
+            newest = max(pending, key=lambda s: s["updated_at"])
+            live = client.subscription.fetch(newest["id"], timeout=RAZORPAY_TIMEOUT)["status"]
+            if live == "created":
+                return newest["id"]
+            if live not in ("cancelled", "completed", "expired"):  # live at Razorpay (e.g. paid): never create a second
+                raise BillingError(409, "A subscription is already in progress at Razorpay; "
+                                        "your plan updates when its webhook arrives.")
+            # Dead at Razorpay: record that (a stuck 'authenticated' row would count as live and block downgrades),
+            # then fall through and start a fresh subscription.
+            conn.execute("UPDATE subscriptions SET status = %s WHERE id = %s", (live, newest["id"]))
+        # Server sets tenant_id from the authenticated key; the browser never chooses who gets upgraded.
+        sub = client.subscription.create({
+            "plan_id": settings.razorpay_plan_id,
+            "total_count": 12,  # 12 monthly cycles; Razorpay requires an end
+            "notes": {"tenant_id": str(tenant_id)},
+        }, timeout=RAZORPAY_TIMEOUT)
+    except RAZORPAY_ERRORS as e:
+        log.exception("Razorpay call failed during checkout for tenant %s", tenant_id)
+        raise BillingError(502, "Payment provider is unavailable; try again shortly.") from e
+    conn.execute(
+        "INSERT INTO subscriptions (id, tenant_id, status, updated_at) VALUES (%s, %s, %s, to_timestamp(%s))",
+        (sub["id"], tenant_id, sub["status"], sub["created_at"]),
+    )
+    return sub["id"]
+
+
+def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: RazorpayEvent) -> str:
     """Apply one verified Razorpay event. Returns what happened: applied / duplicate ignored / ignored: <why>.
 
     Runs in the caller's transaction: the dedup row and the plan change commit together or not at all,
@@ -38,24 +122,33 @@ def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -
     # Duplicates are expected here (Razorpay retries), so DO NOTHING is the intended path, not a hidden error.
     first_time = conn.execute(
         "INSERT INTO webhook_events (event_id, event_type) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING event_id",
-        (event_id, event["event"]),
+        (event_id, event.event),
     ).fetchone()
     if not first_time:
         return "duplicate ignored"
-    if not event["event"].startswith("subscription."):
+    if not event.event.startswith("subscription."):
         return "applied"  # recorded, nothing to sync
 
-    sub = event["payload"]["subscription"]["entity"]
+    assert event.payload.subscription is not None  # guaranteed by RazorpayEvent
+    sub = event.payload.subscription.entity
     # tenant_id was put in notes by our own POST /checkout and arrives here inside a signed payload.
     # No tenant_id (Razorpay sends empty notes as []) = a subscription this engine didn't create, e.g. one made
     # in the dashboard. Acknowledge it so Razorpay stops retrying (and doesn't disable the webhook), touch no tenant.
-    notes = sub["notes"]
+    notes = sub.notes
     if not isinstance(notes, dict) or "tenant_id" not in notes:
-        log.warning("Razorpay %s for %s has no notes.tenant_id; not created by /checkout, ignored", event["event"], sub["id"])
+        log.warning("Razorpay %s for %s has no notes.tenant_id; not created by /checkout, ignored", event.event, sub.id)
         return "ignored: subscription has no tenant_id"
     tenant_id = notes["tenant_id"]
     # Lock first: this tenant's webhooks run one at a time, so the live-subscription check below sees the others' commits.
-    conn.execute("SELECT 1 FROM tenants WHERE id = %s FOR UPDATE", (tenant_id,))
+    # A tenant_id that isn't one of ours (deleted tenant, another environment on the same Razorpay account) can never
+    # succeed on retry, so it is acknowledged like a missing one instead of failing with a 500.
+    try:
+        tenant = conn.execute("SELECT 1 FROM tenants WHERE id = %s FOR UPDATE", (uuid.UUID(str(tenant_id)),)).fetchone()
+    except ValueError:
+        tenant = None
+    if not tenant:
+        log.warning("Razorpay %s for %s names unknown tenant %r, ignored", event.event, sub.id, tenant_id)
+        return "ignored: unknown tenant"
     # Razorpay doesn't guarantee delivery order. Only apply an event at least as new as the last one applied,
     # so a late 'activated' can't undo a 'cancelled'.
     newer = conn.execute(
@@ -63,12 +156,12 @@ def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -
            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at
            WHERE subscriptions.updated_at <= EXCLUDED.updated_at
            RETURNING id""",
-        (sub["id"], tenant_id, sub["status"], event["created_at"]),
+        (sub.id, tenant_id, sub.status, event.created_at),
     ).fetchone()
     if not newer:
         return "ignored: older than last applied event"
-    if sub["status"] in TENANT_STATE:
-        plan_id, status = TENANT_STATE[sub["status"]]
+    if sub.status in TENANT_STATE:
+        plan_id, status = TENANT_STATE[sub.status]
         # A downgrade must not undo another live subscription of the tenant: /checkout starts a new one when the old one
         # died at Razorpay, and the old one's 'cancelled' webhook can arrive (retried) after the new one is paid.
         # 'authenticated' counts as live: it arrives in the same second as 'activated'/'charged', sometimes last,
@@ -77,6 +170,6 @@ def apply_event(conn: psycopg.Connection[DictRow], event_id: str, event: dict) -
             """UPDATE tenants SET plan_id = %s, status = %s WHERE id = %s
                AND (%s = 'pro' OR NOT EXISTS (SELECT 1 FROM subscriptions
                     WHERE tenant_id = %s AND id <> %s AND status IN ('active', 'halted', 'authenticated')))""",
-            (plan_id, status, tenant_id, plan_id, tenant_id, sub["id"]),
+            (plan_id, status, tenant_id, plan_id, tenant_id, sub.id),
         )
     return "applied"

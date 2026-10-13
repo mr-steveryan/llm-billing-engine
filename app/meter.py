@@ -1,3 +1,5 @@
+import hashlib
+
 import psycopg
 from psycopg.rows import DictRow
 from pydantic import BaseModel, Field, model_validator
@@ -26,6 +28,40 @@ class BillingError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.message = message
+
+
+def tenant_for_key(conn: psycopg.Connection[DictRow], api_key: str):
+    """The tenant id owning this API key, or None. Keys are stored only as sha256 hashes."""
+    row = conn.execute(
+        "SELECT id FROM tenants WHERE api_key_hash = %s", (hashlib.sha256(api_key.encode()).hexdigest(),)
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def usage_summary(conn: psycopg.Connection[DictRow], tenant_id) -> dict:
+    """GET /usage: the tenant's plan limits next to this month's usage and cost."""
+    tenant = conn.execute(
+        """SELECT t.plan_id, t.status, p.monthly_calls, p.monthly_tokens
+           FROM tenants t JOIN plans p ON p.id = t.plan_id WHERE t.id = %s""",
+        (tenant_id,),
+    ).fetchone()
+    used = monthly_usage(conn, tenant_id)
+    return {
+        "plan": tenant["plan_id"],
+        "status": tenant["status"],
+        "period": {"start": used["period_start"], "resets_on": used["resets_on"]},
+        "calls": {"used": used["calls"], "limit": tenant["monthly_calls"]},
+        "tokens": {
+            "used": used["tokens"],
+            "limit": tenant["monthly_tokens"],
+            # Per-category totals, so anyone can recompute cost_usd from the pinned rates in app/pricing.py.
+            "input": used["input_tokens"],
+            "cached_input": used["cached_input_tokens"],
+            "output": used["output_tokens"],
+            "reasoning": used["reasoning_tokens"],
+        },
+        "cost_usd": str(used["cost_usd"]),  # str, not float: keeps the exact decimal value stored in Postgres
+    }
 
 
 def monthly_usage(conn: psycopg.Connection[DictRow], tenant_id) -> DictRow:

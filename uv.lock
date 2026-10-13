@@ -288,6 +288,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
     { name = "razorpay" },
+    { name = "requests" },
     { name = "uvicorn" },
 ]
 
@@ -303,6 +304,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "razorpay", specifier = ">=2.0.1" },
+    { name = "requests", specifier = ">=2.34.2" },
     { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 

@@ -197,17 +197,17 @@ uv run scripts/replay_webhook.py [tenant_id]
 | POST | `/generate` | `X-API-Key`, `Idempotency-Key` | 200 event · 400 no idempotency key · 401 bad key · 402 subscription halted (all payment retries failed) · 422 invalid tokens · 429 quota |
 | GET | `/usage` | `X-API-Key` | 200 usage for the current month · 401 |
 | GET | `/checkout` | – | Checkout page |
-| POST | `/checkout` | `X-API-Key` | 200 `{key_id, subscription_id}` (an unpaid subscription is reused after checking its real status at Razorpay) · 401 · 409 already Pro, or a subscription already authorised/live at Razorpay |
-| POST | `/webhooks/razorpay` | Razorpay signature | 200 applied / duplicate ignored / ignored: older than last applied event / ignored: subscription has no tenant_id · 400 bad signature or missing event id |
+| POST | `/checkout` | `X-API-Key` | 200 `{key_id, subscription_id}` (an unpaid subscription is reused after checking its real status at Razorpay) · 401 · 409 already Pro, or a subscription already authorised/live at Razorpay · 502 Razorpay unreachable or erroring (nothing stored) |
+| POST | `/webhooks/razorpay` | Razorpay signature | 200 applied / duplicate ignored / ignored: older than last applied event / ignored: subscription has no tenant_id / ignored: unknown tenant · 400 bad signature, missing event id or malformed event |
 | GET | `/health` | – | 200 when the database is reachable |
 
 ## Project layout
 
 ```
-app/main.py        routes
+app/main.py        HTTP only: input checks, status codes
 app/meter.py       metering: record() + monthly_usage(), quota rules
 app/pricing.py     pinned token prices + cost formula
-app/billing.py     Razorpay webhook: signature, dedup, plan sync
+app/billing.py     Razorpay checkout + webhook: signature, dedup, plan sync
 app/config.py      settings from .env (pydantic-settings)
 app/db.py          Postgres connection
 app/checkout.html  Razorpay checkout page

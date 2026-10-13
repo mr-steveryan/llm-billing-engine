@@ -4,7 +4,6 @@ import json
 import threading
 import time
 
-import psycopg
 import pytest
 
 from app import billing
@@ -113,8 +112,9 @@ def test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation():
     # sub_B's activation is applied but not committed when sub_A's cancel arrives; without the tenant lock,
     # the cancel's live-subscription check misses sub_B and overwrites Pro with Free once sub_B commits.
     def event(name, sub_id, status, created_at):
-        return {"event": f"subscription.{name}", "created_at": created_at,
-                "payload": {"subscription": {"entity": {"id": sub_id, "status": status, "notes": {"tenant_id": TENANT_A}}}}}
+        return billing.RazorpayEvent.model_validate(
+            {"event": f"subscription.{name}", "created_at": created_at,
+             "payload": {"subscription": {"entity": {"id": sub_id, "status": status, "notes": {"tenant_id": TENANT_A}}}}})
 
     results = []  # a thread's exception is only a pytest warning, so the result is checked explicitly
 
@@ -132,18 +132,48 @@ def test_concurrent_old_cancel_cannot_downgrade_tenant_mid_activation():
     assert tenant_a() == {"plan_id": "pro", "status": "active"}
 
 
-def test_failed_apply_does_not_mark_event_seen(client):
-    # Dedup row and plan change share one transaction: if applying fails, Razorpay's retry must not be "duplicate".
-    body = json.dumps({
+def signed_post(client, event_id, body: bytes):
+    headers = {"X-Razorpay-Signature": hmac.new(SECRET, body, hashlib.sha256).hexdigest(), "X-Razorpay-Event-Id": event_id}
+    return client.post("/webhooks/razorpay", content=body, headers=headers)
+
+
+def activated_for(tenant_id):
+    return json.dumps({
         "event": "subscription.activated", "created_at": 1_000,
-        "payload": {"subscription": {"entity": {
-            "id": "sub_UNKNOWN0000001", "status": "active", "notes": {"tenant_id": "00000000-0000-7000-8000-0000000000ff"},
-        }}},
+        "payload": {"subscription": {"entity": {"id": "sub_UNKNOWN0000001", "status": "active", "notes": {"tenant_id": tenant_id}}}},
     }).encode()
-    headers = {"X-Razorpay-Signature": hmac.new(SECRET, body, hashlib.sha256).hexdigest(),
-               "X-Razorpay-Event-Id": "evt_unknown_tenant"}
-    with pytest.raises(psycopg.errors.ForeignKeyViolation):  # TestClient re-raises unhandled app errors
-        client.post("/webhooks/razorpay", content=body, headers=headers)
+
+
+def test_failed_apply_does_not_mark_event_seen(client, monkeypatch):
+    # Dedup row and plan change share one transaction: if applying fails, Razorpay's retry must not be "duplicate".
+    monkeypatch.setitem(billing.TENANT_STATE, "active", None)  # forces a crash after the dedup row is inserted
+    with pytest.raises(TypeError):  # TestClient re-raises unhandled app errors
+        signed_post(client, "evt_crash", activated_for(TENANT_A))
+    with connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM webhook_events").fetchone()["n"] == 0
+
+
+@pytest.mark.parametrize("tenant_id", ["00000000-0000-7000-8000-0000000000ff", "not-a-uuid", 42])
+def test_event_for_unknown_tenant_is_acknowledged_not_crashed(client, tenant_id):
+    # Can never succeed on retry, so it is recorded and acknowledged (200) instead of a 500 Razorpay retries forever.
+    r = signed_post(client, "evt_unknown_tenant", activated_for(tenant_id))
+    assert r.status_code == 200 and r.json()["status"] == "ignored: unknown tenant"
+    with connect() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM subscriptions").fetchone()["n"] == 0
+        assert conn.execute("SELECT count(*) AS n FROM tenants WHERE plan_id <> 'free'").fetchone()["n"] == 0
+
+
+@pytest.mark.parametrize("body", [
+    b"not json",
+    b"[]",
+    b'{"event": "subscription.activated", "created_at": 1000, "payload": {}}',  # no subscription entity
+    b'{"event": "subscription.activated", "created_at": 1000, "payload": {"subscription": {"entity": {"id": "s"}}}}',
+    b'{"event": "payment.captured", "created_at": 99999999999999, "payload": {}}',  # timestamp out of range
+    b'{"created_at": 1000, "payload": {}}',  # no event name
+])
+def test_signed_but_malformed_event_is_400_and_changes_nothing(client, body):
+    r = signed_post(client, "evt_malformed", body)
+    assert r.status_code == 400 and r.json()["detail"] == "Malformed webhook event."
     with connect() as conn:
         assert conn.execute("SELECT count(*) AS n FROM webhook_events").fetchone()["n"] == 0
 
