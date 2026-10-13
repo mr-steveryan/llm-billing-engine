@@ -225,7 +225,7 @@ Ran `/ponytail-audit` again on the committed repo. It reported 3 findings, all f
 - 43 tests pass (3 new). The first two new tests fail against the old code. The third guards behaviour that already
   worked, so it passes on both.
 
-## 2026-10-13: Third Ponytail audit fix
+## 2026-10-13: Third Ponytail audit fix. Commit `c3f70d9`
 
 Ran `/ponytail-audit` a third time. It reported 1 finding, in the previous round's downgrade fix:
 - **Two webhooks at the same moment could still downgrade a paying tenant.** The live-subscription check read
