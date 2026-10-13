@@ -311,7 +311,7 @@ The README showed how to start the stack but not how to stop it; the only shutdo
 whether each keeps the database. Checked on the running stack: data and the `pgdata` volume survived both
 `stop`/`start` and `down`/`up`.
 
-## 2026-10-13: Evaluation fixes: thin HTTP layer, boundary validation, migrations. Commits `TBD`
+## 2026-10-13: Evaluation fixes: thin HTTP layer, boundary validation, migrations. Commits `da15d1a`, `136a60c`, `fbfd506`, `813e2a6`
 
 Two evaluation workflows (4 agents each) graded the repo against `.docs/evaluate.md` and `.docs/sections.md`.
 Code passed everything except: R1 layering and R2 validation (partial), R3 background job (missing), R4 migrations
