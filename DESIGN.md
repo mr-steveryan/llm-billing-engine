@@ -148,7 +148,8 @@ event (`activated`, `charged`, `updated`, `halted`, `cancelled`, ...) follows on
   row is only a mirror and is stale if a webhook was missed:
   still `created` → **reused** (same `subscription_id`); live (`authenticated`/`active`/`pending`/`halted`/`paused`,
   e.g. paid but the webhook never arrived) → **409**, never a second subscription; dead (`cancelled`/`completed`/`expired`)
-  → a fresh one is created. The fetch is read-only: the mirror and the tenant's plan still change only through webhooks.
+  → its row is set to that status, then a fresh one is created. The tenant's plan still changes only through webhooks;
+  correcting the dead row matters because a row stuck at `authenticated` would count as live in the downgrade check.
   A new subscription gets `notes.tenant_id` set server-side from the API key and is recorded as `created` immediately,
   so repeat clicks find it. Double-clicks, two tabs, or a missed webhook can't create two live subscriptions.
   The browser's success callback is ignored; only the webhook changes the plan.

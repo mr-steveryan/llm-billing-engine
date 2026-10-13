@@ -131,9 +131,24 @@ def test_dead_subscription_at_razorpay_starts_a_fresh_one(client, fake):
     r = checkout(client)
     assert r.status_code == 200 and r.json()["subscription_id"] == "sub_FAKE0000000002"
     assert len(fake.calls) == 2
+    assert {"id": SUB_ID, "tenant_id": TENANT_A, "status": "expired"} in stored_subscriptions()  # stale row corrected
     fake.live_status = "created"
     assert checkout(client).json()["subscription_id"] == "sub_FAKE0000000002"  # the newest one is reused next
     assert fake.fetched[-1] == "sub_FAKE0000000002"
+
+
+def test_cancelling_after_a_stuck_authenticated_row_returns_tenant_to_free(client, fake):
+    # sub 1 was authorised, then cancelled at Razorpay with the webhook lost: our row would stay 'authenticated',
+    # count as live, and keep the tenant on Pro after they cancel sub 2.
+    checkout(client)
+    with connect() as conn:
+        conn.execute("UPDATE subscriptions SET status = 'authenticated' WHERE id = %s", (SUB_ID,))
+    fake.live_status = "cancelled"
+    sub2 = checkout(client).json()["subscription_id"]
+    send(client, "evt_2_act", "activated", created_at=5_000, sub_id=sub2)
+    assert tenant_a()["plan_id"] == "pro"
+    send(client, "evt_2_can", "cancelled", created_at=6_000, sub_id=sub2)
+    assert tenant_a() == {"plan_id": "free", "status": "active"}
 
 
 def test_razorpay_calls_have_a_timeout(client, fake):

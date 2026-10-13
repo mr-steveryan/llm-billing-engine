@@ -106,7 +106,7 @@ def create_checkout(x_api_key: Annotated[str | None, Header()] = None):
         client = razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret.get_secret_value()))
         if pending:  # unpaid or authorised checkout from an earlier click
             # Our row is only a mirror and may be stale if a webhook was missed, so ask Razorpay before acting on it.
-            # Read-only: the mirror and the tenant's plan still change only through webhooks.
+            # The tenant's plan still changes only through webhooks; only a dead subscription's row is corrected below.
             newest = max(pending, key=lambda s: s["updated_at"])
             live = client.subscription.fetch(newest["id"], timeout=RAZORPAY_TIMEOUT)["status"]
             if live == "created":
@@ -114,7 +114,9 @@ def create_checkout(x_api_key: Annotated[str | None, Header()] = None):
             if live not in ("cancelled", "completed", "expired"):  # live at Razorpay (e.g. paid): never create a second
                 raise HTTPException(409, "A subscription is already in progress at Razorpay; "
                                          "your plan updates when its webhook arrives.")
-            # Dead at Razorpay: fall through and start a fresh subscription.
+            # Dead at Razorpay: record that (a stuck 'authenticated' row would count as live and block downgrades),
+            # then fall through and start a fresh subscription.
+            conn.execute("UPDATE subscriptions SET status = %s WHERE id = %s", (live, newest["id"]))
         # Server sets tenant_id from the authenticated key; the browser never chooses who gets upgraded.
         sub = client.subscription.create({
             "plan_id": settings.razorpay_plan_id,

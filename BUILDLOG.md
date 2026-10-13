@@ -264,3 +264,14 @@ Checked the three items the audits had left as "not checked":
   with no errors. A tenant with no history reached 415/s. Pro's 50k calls/month averages 0.02/s, so this is far
   above the expected load; a running monthly total would be the change if that ever stops being true.
 - 45 tests pass (1 new). The new test fails without the fix.
+
+## 2026-10-13: Fourth Ponytail audit fix
+
+Ran `/ponytail-audit` again. It reported 1 finding, caused by the previous fix (`authenticated` counted as live):
+- **A cancelled tenant could keep Pro for free.** When `/checkout` found an earlier subscription dead at Razorpay,
+  it started a new one but left the dead one's row unchanged. If that row said `authenticated` (its cancel webhook
+  lost, e.g. after Razorpay's 24 h retries ran out), it counted as live forever, so cancelling the new paid
+  subscription no longer moved the tenant to Free. Reproduced with a test. `/checkout` now sets the dead row to the
+  status Razorpay just reported (fetched with our secret key, so as trustworthy as a signed webhook) before starting
+  the new subscription. The tenant's plan still changes only through webhooks.
+- 46 tests pass (1 new, 1 extended). Both fail without the fix.
