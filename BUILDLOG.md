@@ -336,7 +336,7 @@ Code passed everything except: R1 layering and R2 validation (partial), R3 backg
 - Split into four commits, each checked on its own in a temporary worktree: 55 tests pass at every step, and the
   commit-2 image ships both migrations.
 
-## 2026-10-13: Third evaluation run, two small fixes. Commit `TBD`
+## 2026-10-13: Third evaluation run, two small fixes. Commit `c0f7702`
 
 A third run of the evaluation workflow after the push: R2 and R4 now pass, all Section 6 boxes and gates pass, and the
 submission pack is complete on GitHub. R3 stays a disclosed FAIL; R1, R5 and R7 stay PARTIAL. Two small findings fixed:
